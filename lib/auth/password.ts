@@ -29,7 +29,7 @@ export function constantTimeEqual(left: string, right: string): boolean {
   return timingSafeEqual(createHash("sha256").update(left).digest(), createHash("sha256").update(right).digest());
 }
 export function validNewPassword(password: unknown): password is string {
-  return typeof password === "string" && [...password].length >= 12 && Buffer.byteLength(password, "utf8") <= 256;
+  return typeof password === "string" && password.length === 4 && /^[0-9]{4}$/.test(password);
 }
 export async function hashPassword(password: string): Promise<string> {
   if (!validNewPassword(password)) throw new Error("invalid_new_password");

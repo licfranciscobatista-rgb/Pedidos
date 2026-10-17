@@ -4,6 +4,7 @@ import { registerHooks } from "node:module";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { legacyPassword, legacyHash } from "./auth-legacy-fixture.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 registerHooks({ resolve(specifier, context, nextResolve) {
@@ -35,19 +36,20 @@ test("configuración privada: usuario explícito, namespace UUID y origen HTTPS"
   assert.equal(await setupState(null), "unavailable");
 });
 
-test("contraseñas scrypt: sal distinta, comparación correcta y política de longitud", async () => {
-  const password = "Una clave de prueba 8274";
-  assert.equal(validNewPassword("muy corta"), false);
-  assert.equal(validNewPassword("a".repeat(257)), false);
-  assert.equal(validNewPassword(password), true);
+test("PIN de cuatro dígitos: ceros iniciales, hash con sal y compatibilidad de claves anteriores", async () => {
+  const password = "0123";
+  for (const value of ["0000", password, "9999"]) assert.equal(validNewPassword(value), true);
+  for (const value of [1234, null, undefined, "", "123", "12345", "12a4", " 123", "123 ", "0123\n", "０１２３", "٠١٢٣", legacyPassword]) assert.equal(validNewPassword(value), false, String(value));
   const first = await hashPassword(password);
   const second = await hashPassword(password);
   assert.match(first, /^scrypt\$v1\$131072\$8\$1\$/);
   assert.notEqual(first, second);
   assert.ok(!first.includes(password));
   assert.equal(await verifyPassword(password, first), true);
+  assert.equal(await verifyPassword("123", first), false);
   assert.equal(await verifyPassword("Una clave equivocada", first), false);
   assert.equal(await verifyPassword(password, null), false);
+  assert.equal(await verifyPassword(legacyPassword, legacyHash), true);
   assert.equal(constantTimeEqual("secret", "secret"), true);
   assert.equal(constantTimeEqual("secret", "secret-more"), false);
 });

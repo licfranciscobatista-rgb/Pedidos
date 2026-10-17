@@ -11,8 +11,8 @@ export default async function SetupPage() {
   return <main className={styles.screen}><section className={styles.card} aria-labelledby="setup-heading">
     <a className={styles.brand} href="/login">mi encargo<span>.</span></a><p className={styles.eyebrow}>TU ESPACIO PRIVADO</p>
     <div className={styles.icon} aria-hidden="true">✽</div><h1 id="setup-heading">Crea tu acceso</h1>
-    <p className={styles.intro}>Elige la contraseña de tu usuario. Solo necesitarás este paso la primera vez.</p>
-    {state === "ready" ? <SetupForm ownerUsername={config!.ownerUsername}/> : <div className={styles.setup} role="status"><strong>La instalación está pendiente.</strong><p>Falta completar la configuración del servidor antes de crear tu contraseña.</p></div>}
-    <p className={styles.footer}>Guarda tu contraseña en un lugar seguro.</p>
+    <p className={styles.intro}>Elige un PIN de 4 dígitos para tu usuario. Solo necesitarás este paso la primera vez.</p>
+    {state === "ready" ? <SetupForm ownerUsername={config!.ownerUsername}/> : <div className={styles.setup} role="status"><strong>La instalación está pendiente.</strong><p>Falta completar la configuración del servidor antes de crear tu PIN.</p></div>}
+    <p className={styles.footer}>Guarda tu PIN en un lugar seguro.</p>
   </section></main>;
 }

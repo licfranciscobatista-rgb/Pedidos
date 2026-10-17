@@ -22,7 +22,7 @@ Node.js 24, Next.js 16 y React 19. Configurar las variables de .env.example en .
 
 En Render: Web Service, rama main, Virginia, Free. Build: npm ci && npm run build. Inicio: npm run db:migrate && npm start. Escucha en 0.0.0.0 y respeta PORT. APP_ORIGIN es el origen HTTPS real sin ruta. Las migraciones se verifican por checksum y se ejecutan en transacción con bloqueo.
 
-La cuenta única se crea en /setup con el usuario configurado y una clave de instalación aleatoria de 32 caracteres o más. El dueño elige su contraseña directamente en la web. La clave se recibe en el fragmento del enlace y se elimina del navegador al abrir el formulario. Después de crear la cuenta, el alta queda cerrada. Las cabeceras de identidad de otros alojamientos no conceden acceso.
+La cuenta única se crea en /setup con el usuario configurado y una clave de instalación aleatoria de 32 caracteres o más. El dueño elige un PIN de exactamente 4 dígitos directamente en la web. El acceso permite un máximo de 5 intentos fallidos por 15 minutos; un acceso correcto reinicia el contador. La clave se recibe en el fragmento del enlace y se elimina del navegador al abrir el formulario. Después de crear la cuenta, el alta queda cerrada. Las cabeceras de identidad de otros alojamientos no conceden acceso.
 
 ## Excel Online y OneDrive
 

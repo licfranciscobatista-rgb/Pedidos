@@ -51,7 +51,7 @@ async function transaction<T>(pool: Pool, action: (client: PoolClient) => Promis
 }
 
 export async function takeAttempt(action: "login" | "setup", pool: Pool = getPool()): Promise<void> {
-  const maximum = action === "login" ? 12 : 10;
+  const maximum = action === "login" ? 5 : 10;
   const windowMs = action === "login" ? 15 * 60_000 : 60 * 60_000;
   const now = Date.now();
   const retry = await transaction(pool, async client => {
@@ -81,8 +81,8 @@ export async function createOwner(input: { username?: unknown; password?: unknow
   // Only a holder of the high-entropy installation key reaches costly work.
   await takeAttempt("setup", pool);
   if (typeof input.username !== "string" || normalizeUsername(input.username) !== config.normalizedUsername) throw new AuthError("Usa el nombre de usuario autorizado para esta aplicación.", 403);
-  if (!validNewPassword(input.password)) throw new AuthError("Crea una contraseña de al menos 12 caracteres y un máximo de 256 bytes.");
-  if (input.confirmPassword !== input.password) throw new AuthError("Las contraseñas no coinciden.");
+  if (!validNewPassword(input.password)) throw new AuthError("Crea un PIN de exactamente 4 dígitos, del 0 al 9.");
+  if (input.confirmPassword !== input.password) throw new AuthError("Los PIN no coinciden.");
   const passwordHash = await hashPassword(input.password);
   const token = newSessionToken();
   await transaction(pool, async client => {

@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Pool } from "pg";
+import { legacyPassword, legacyHash } from "./auth-legacy-fixture.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const stub = new URL("./auth-postgres-stubs.mjs", import.meta.url).href;
@@ -39,7 +40,7 @@ test("PostgreSQL real: bootstrap cerrado, sesiones, logout, falsificación y lí
   const previousPool = globalThis.__authTestPool;
   const previousCookies = globalThis.__authTestCookies;
   let created = false;
-  const password = "Clave de prueba privada 9182";
+  const password = "0123";
   const config = authConfiguration(environment);
   const cookieName = sessionCookieName(true);
   const request = (path, body, origin = environment.APP_ORIGIN) => new Request(`http://render-internal${path}`, { method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify(body) });
@@ -58,6 +59,7 @@ test("PostgreSQL real: bootstrap cerrado, sesiones, logout, falsificación y lí
       assert.equal((await pool.query("SELECT COUNT(*)::int AS n FROM auth_rate_limits WHERE action='setup'")).rows[0].n, 0, "un visitante sin secreto no consume el cupo de instalación");
       assert.equal((await setup.POST(request("/api/auth/setup", { ...input, username: "attacker" }))).status, 403);
       assert.equal((await setup.POST(request("/api/auth/setup", { ...input, password: "short", confirmPassword: "short" }))).status, 400);
+      assert.equal((await setup.POST(request("/api/auth/setup", { ...input, confirmPassword: "0124" }))).status, 400);
       assert.equal((await pool.query("SELECT COUNT(*)::int AS n FROM auth_owner")).rows[0].n, 0);
     });
 
@@ -95,9 +97,12 @@ test("PostgreSQL real: bootstrap cerrado, sesiones, logout, falsificación y lí
     await t.test("login valida contraseña y logout revoca la sesión en PostgreSQL", async () => {
       assert.equal((await login.POST(request("/api/auth/login", { username: "ADMINISTRADOR", password: "Incorrecta de prueba" }))).status, 401);
       assert.equal((await login.POST(request("/api/auth/login", { username: "attacker", password }))).status, 401);
+      assert.equal((await login.POST(request("/api/auth/login", { username: "ADMINISTRADOR", password: "123" }))).status, 401);
+      assert.equal((await login.POST(request("/api/auth/login", { username: "ADMINISTRADOR", password: 123 }))).status, 401);
       assert.equal((await login.POST(request("/api/auth/login", { username: "administrador", password }, "https://attacker.invalid"))).status, 403);
       const response = await login.POST(request("/api/auth/login", { username: " administrador ", password }));
       assert.equal(response.status, 200);
+      assert.equal((await pool.query("SELECT COUNT(*)::int AS n FROM auth_rate_limits WHERE action='login'")).rows[0].n, 0, "un acceso correcto reinicia los intentos");
       assert.match(response.headers.get("set-cookie"), /HttpOnly; SameSite=Lax; Max-Age=604800; Secure/);
       const token = tokenFrom(response);
       assert.notEqual(token, firstToken);
@@ -115,12 +120,19 @@ test("PostgreSQL real: bootstrap cerrado, sesiones, logout, falsificación y lí
       assert.equal(await getAppUser(), null);
     });
 
-    await t.test("la limitación concurrente es persistente y no depende de IP falsificable", async () => {
+    await t.test("las contraseñas largas anteriores siguen permitiendo entrar", async () => {
+      await pool.query("UPDATE auth_owner SET password_hash=$1 WHERE id=1", [legacyHash]);
+      const response = await login.POST(request("/api/auth/login", { username: "ADMINISTRADOR", password: legacyPassword }));
+      assert.equal(response.status, 200);
+      assert.equal((await readSession(tokenFrom(response), config, pool)).userId, config.dataOwnerId);
+    });
+
+    await t.test("la limitación concurrente acepta cinco intentos y devuelve Retry-After", async () => {
       const attempts = await Promise.allSettled(Array.from({ length: 14 }, () => takeAttempt("login", pool)));
-      assert.equal(attempts.filter(value => value.status === "fulfilled").length, 12);
-      assert.equal(attempts.filter(value => value.status === "rejected" && value.reason.status === 429).length, 2);
+      assert.equal(attempts.filter(value => value.status === "fulfilled").length, 5);
+      assert.equal(attempts.filter(value => value.status === "rejected" && value.reason.status === 429).length, 9);
       const saved = (await pool.query("SELECT attempts FROM auth_rate_limits WHERE action='login'")).rows[0];
-      assert.equal(saved.attempts, 12);
+      assert.equal(saved.attempts, 5);
       const limited = await login.POST(request("/api/auth/login", { username: "ADMINISTRADOR", password }));
       assert.equal(limited.status, 429);
       assert.ok(Number(limited.headers.get("retry-after")) > 0);
