@@ -22,6 +22,8 @@ No se sincroniza una copia antigua si el Excel cambia mientras se procesa. Los m
 
 Las relecturas del mismo `eTag` no duplican artículos, pagos, fotos ni eventos. Una versión sin cambios devuelve HTTP 304 y evita descargar de nuevo las imágenes. Las facturas emitidas mantienen sus snapshots.
 
+Si una comprobación encuentra filas incompletas u otros errores de validación del Excel, conserva el aviso y no importa ninguna parte del lote. La automática vuelve a comprobar el libro cada 60 segundos mientras la página está visible, de modo que completar la fila permite continuar sin pulsar Reintentar. Los errores de autorización, servidor y conflictos sí pausan la automática hasta su revisión. El aviso de un libro que solo tiene encabezados permanece entre comprobaciones sin cambios.
+
 Los tokens se cifran con AES-GCM y datos adicionales del propietario, los estados OAuth son de un solo uso y caducan a los 10 minutos, y el flujo utiliza PKCE y una cookie HTTP-only. Desconectar borra los tokens de acceso y renovación del servidor; conserva los pedidos y movimientos. Una autorización que estuviera en curso antes de desconectar no puede restablecer la conexión.
 
 ## API
@@ -40,3 +42,5 @@ Los tokens se cifran con AES-GCM y datos adicionales del propietario, los estado
 `tests/onedrive-postgres.test.mjs` ejecuta las rutas y su SQL real en un esquema temporal aislado de PostgreSQL, con respuestas simuladas de Microsoft. Comprueba PKCE, aislamiento de propietario, cifrado, código de un solo uso, renovación, selección, descarga, versiones, sincronización concurrente sin duplicados, conflictos, pagos y cambios inmutables y la desconexión durante una autorización. El esquema temporal se elimina al terminar. Se necesita `TEST_DATABASE_URL` con una conexión directa, sin pooler, para establecer su `search_path`; nunca se utilizan tablas de negocio existentes.
 
 `tests/onedrive-unit.test.mjs` comprueba además el cifrado con propietario y detección de alteraciones, las reglas de baselines y el callback detrás de un proxy. Estas pruebas no equivalen a una autorización real contra Microsoft; esa validación queda pendiente hasta registrar la aplicación y conectar la cuenta.
+
+`tests/onedrive-panel.test.mjs` ejecuta el componente con temporizadores y respuestas simuladas para comprobar que una fila incompleta no escribe ni sube fotos, que el sondeo visible puede recuperarse al completar los datos, que el aviso de encabezados se conserva y que los errores 401/409/500 mantienen la pausa. Está incluido en `npm run test:unit` y no utiliza datos de negocio.

@@ -41,23 +41,28 @@ export default function OneDrivePanel({ manualBusy, onSyncBusy, onSynced }: { ma
   const synchronize = useCallback(async (manual = false) => {
     const current = statusRef.current;
     if (!current?.configured || !current.connected || !current.selectedFile || busyRef.current || manualRef.current || (!manual && (!autoRef.current || haltedRef.current || document.visibilityState !== "visible"))) return;
-    busyRef.current = true; callbackRef.current.onSyncBusy(true); setWorking("Comprobando tu libro en OneDrive…"); setError(""); setMessage(""); setConflicts([]); setConflictState(false);
+    busyRef.current = true; callbackRef.current.onSyncBusy(true); setWorking("Comprobando tu libro en OneDrive…"); setConflicts([]); setConflictState(false);
     if (manual) { haltedRef.current = false; setHalted(false); }
     try {
       const headers: Record<string, string> = {};
       if (etagRef.current.fileId === current.selectedFile.id && etagRef.current.etag) headers["If-None-Match"] = etagRef.current.etag;
       const response = await driveRequest("/api/onedrive/download", { headers });
-      if (response.status === 304 || response.status === 204) { setCheckedAt(new Date().toISOString()); if (manual) setMessage("El libro ya está al día. No se volvieron a importar sus registros."); return; }
+      if (response.status === 304 || response.status === 204) { setError(""); setCheckedAt(new Date().toISOString()); if (manual) setMessage("El libro ya está al día. No se volvieron a importar sus registros."); return; }
       if (!response.ok) { if (response.status === 409) setConflictState(true); const result = await response.json().catch(() => ({})) as { error?: string }; throw new Error(result.error || "No se pudo descargar el libro de OneDrive."); }
       const fileId = response.headers.get("X-OneDrive-File-Id"), etag = response.headers.get("X-OneDrive-Etag");
       if (!etag || fileId !== current.selectedFile.id) throw new Error("No se pudo verificar la versión del libro seleccionado. Actualiza la conexión y vuelve a intentar.");
-      if (etagRef.current.fileId === fileId && etagRef.current.etag === etag) { await response.body?.cancel(); setCheckedAt(new Date().toISOString()); if (manual) setMessage("El libro no cambió desde la última comprobación."); return; }
+      if (etagRef.current.fileId === fileId && etagRef.current.etag === etag) { await response.body?.cancel(); setError(""); setCheckedAt(new Date().toISOString()); if (manual) setMessage("El libro no cambió desde la última comprobación."); return; }
       const bytes = await response.arrayBuffer();
       if (bytes.byteLength > 5 * 1024 * 1024) throw new Error("El libro supera el límite de 5 MB. Reduce las fotos o divide los pedidos antes de sincronizar.");
       setWorking("Leyendo los artículos, los pagos y las fotos del Excel…");
       const preview = await parseExcel(bytes, current.selectedFile.name);
-      if (preview.errors.length) throw new Error(`Corrige el libro antes de sincronizar: ${preview.errors.slice(0, 5).join(" ")}${preview.errors.length > 5 ? ` Hay ${preview.errors.length - 5} errores adicionales.` : ""}`);
+      if (preview.errors.length) {
+        setMessage(""); setCheckedAt(new Date().toISOString());
+        setError(`Corrige el libro antes de sincronizar: ${preview.errors.slice(0, 5).join(" ")}${preview.errors.length > 5 ? ` Hay ${preview.errors.length - 5} errores adicionales.` : ""} No se guardó ningún cambio de este libro. Si la automática está activa, volverá a comprobarlo cada 60 segundos mientras esta página esté visible.`);
+        return;
+      }
       if (preview.generatedIds) throw new Error("La sincronización requiere un ID Pedido estable para cada artículo. Completa esos códigos en el Excel antes de reintentar.");
+      setError("");
       if (!preview.orders.length && !preview.payments.length && !preview.exchanges.length) { etagRef.current = { fileId, etag }; setCheckedAt(new Date().toISOString()); setMessage("El libro solo tiene encabezados. Agrega tus artículos y se leerán cuando guardes los cambios."); return; }
       const orders = preview.orders.map(order => ({ ...order }));
       for (let i = 0; i < preview.photos.length; i++) {
@@ -76,7 +81,7 @@ export default function OneDrivePanel({ manualBusy, onSyncBusy, onSynced }: { ma
       callbackRef.current.onSynced();
       const changes = result.changes, count = changes ? Object.entries(changes).filter(([key]) => /created|updated/i.test(key)).reduce((sum, [, value]) => sum + (Number(value) || 0), 0) : undefined;
       setMessage(count === 0 ? "Libro sincronizado. Los registros que ya estaban guardados no se duplicaron." : count === undefined ? "Cambios del Excel guardados en la web." : `${count} ${count === 1 ? "registro actualizado" : "registros actualizados"} desde el Excel.`);
-    } catch (cause) { haltedRef.current = true; setHalted(true); setError(cause instanceof Error ? cause.message : "No se pudo sincronizar con OneDrive. Revisa la conexión y vuelve a intentar."); }
+    } catch (cause) { haltedRef.current = true; setHalted(true); setMessage(""); setError(cause instanceof Error ? cause.message : "No se pudo sincronizar con OneDrive. Revisa la conexión y vuelve a intentar."); }
     finally { busyRef.current = false; callbackRef.current.onSyncBusy(false); setWorking(""); }
   }, [readStatus]);
   useEffect(() => {
@@ -103,7 +108,7 @@ export default function OneDrivePanel({ manualBusy, onSyncBusy, onSynced }: { ma
   }
   async function selectFile(file: DriveFile) {
     if (busyRef.current || manualBusy) return;
-    busyRef.current = true; callbackRef.current.onSyncBusy(true); setWorking("Seleccionando tu libro…"); setError(""); setConflicts([]);
+    busyRef.current = true; callbackRef.current.onSyncBusy(true); setWorking("Seleccionando tu libro…"); setError(""); setMessage(""); setConflicts([]);
     let ready = false;
     try { await jsonRequest("/api/onedrive/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: file.id }) }); await readStatus(); etagRef.current = { fileId: file.id, etag: "" }; setFiles(null); setSearched(false); setConflictState(false); haltedRef.current = false; setHalted(false); autoRef.current = true; setAutomatic(true); ready = true; }
     catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo seleccionar este libro."); }
