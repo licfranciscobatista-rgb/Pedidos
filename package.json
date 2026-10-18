@@ -11,7 +11,7 @@
     "start": "node scripts/start.mjs",
     "lint": "eslint . --ignore-pattern .next",
     "db:migrate": "node scripts/migrate.mjs",
-    "test:unit": "node --experimental-transform-types --test tests/excel.test.mjs tests/auth.test.mjs tests/photos.test.mjs tests/onedrive-unit.test.mjs tests/onedrive-panel.test.mjs",
+    "test:unit": "node --experimental-transform-types --test tests/excel.test.mjs tests/auth.test.mjs tests/photos.test.mjs tests/onedrive-unit.test.mjs tests/onedrive-panel.test.mjs tests/onedrive-files.test.mjs",
     "test:postgres": "node --experimental-transform-types --test tests/postgres.test.mjs tests/onedrive-postgres.test.mjs tests/auth-postgres.test.mjs"
   },
   "dependencies": {

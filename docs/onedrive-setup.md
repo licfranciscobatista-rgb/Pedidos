@@ -10,6 +10,8 @@ La aplicación está preparada para una conexión real. Hasta configurar un regi
 4. Configurar en las variables de entorno del servicio de Render `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_REDIRECT_URI` y `ONEDRIVE_TOKEN_KEY`. Esta última debe ser una clave AES-GCM aleatoria de 32 bytes codificada en base64. La variable general `APP_ORIGIN` debe contener el origen público, por ejemplo `https://mi-app.onrender.com`, sin barra final. No guardar secretos reales en el repositorio, el navegador ni esta documentación.
 5. En la aplicación, usar **Conectar OneDrive**, iniciar sesión en Microsoft y autorizar la lectura. Seleccionar explícitamente el libro propio `PROGRAMA DE PEDIDOS.xlsx` entre los resultados.
 
+Si el buscador de Microsoft no devuelve un archivo que sí está en la cuenta, el mismo campo permite escribir su ruta de carpetas, por ejemplo `Documents/Pedidos.xlsx`. La ruta se resuelve directamente en el OneDrive autorizado, conserva los espacios del nombre y aplica la misma validación de libro propio `.xlsx`. No requiere permisos adicionales ni cambia el archivo de ubicación.
+
 El registro de aplicación y el consentimiento son acciones externas necesarias. Publicar el código o disponer de cuentas de Render y Neon no los crea automáticamente. Las credenciales confidenciales y la clave de cifrado deben configurarse como secretos del servidor. Una clave de cifrado nueva impide abrir conexiones guardadas con otra clave; se debe volver a conectar la cuenta. El callback utiliza `APP_ORIGIN` para validar la dirección y volver a la web; no confía en el host interno del proxy ni en encabezados de origen reenviados.
 
 ## Sincronización
