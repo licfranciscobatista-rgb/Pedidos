@@ -46,10 +46,15 @@ test("Excel rechaza IDs faltantes, repetidos, fechas e imágenes ambiguas", asyn
   assert.ok(parsed.errors.some(e=>e.includes("varias filas")));
 });
 
-test("Plantilla vacía no importa fórmulas como pedidos", async () => {
+test("Plantilla avanzada conserva sus 14 hojas sin datos personales, fotos ni referencia original", async () => {
   const file=readFileSync(new URL("../public/plantilla-pedidos.xlsx",import.meta.url));
   const result=await parseExcel(toArray(file));
   assert.deepEqual(result.errors,[]);assert.equal(result.orders.length,0);assert.equal(result.payments.length,0);
+  for(const key of ["clients","quotes","invoiceDrafts","exchanges","photos"])assert.equal(result[key].length,0,key);
+  const zip=await JSZip.loadAsync(file), book=await zip.file("xl/workbook.xml").async("string");
+  const sheets=[...book.matchAll(/<(?:\w+:)?sheet\b[^>]*\bname="([^"]+)"/g)].map(match=>match[1]);
+  assert.deepEqual(sheets,["Inicio","Clientes","Pedidos","Precios","Pagos","Cotizaciones","DetalleCotizaciones","Facturas","DetalleFacturas","FacturasEmitidas","DetalleEmitidas","Cambios","Listas","Guía"]);
+  assert.equal(Object.keys(zip.files).filter(name=>name.startsWith("xl/media/")&&!zip.files[name].dir).length,0);
   assert.ok(result.warnings.some(e=>e.includes("encabezados")));
 });
 

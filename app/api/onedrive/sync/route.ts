@@ -1,8 +1,11 @@
 import { parseImport, parseText, record, ValidationError } from "@/lib/validation";
 import { buildImportStatements, importChanges } from "../../_import";
 import { assertSql, body, context, isTransactionConflict, json, route } from "../../_shared";
-import { connection, fileId, metadata, requireConfig } from "../_core";
+import { canWrite, connection, fileId, metadata, requireConfig } from "../_core";
 import { planSync } from "../_sync";
+import { parseBusinessImport } from "@/lib/business-validation";
+import { prepareBusinessImport } from "@/lib/business-import";
+import { normalizeOrdersWithClients } from "@/lib/order-clients";
 
 export async function POST(request: Request) {
   return route(async () => {
@@ -19,12 +22,17 @@ export async function POST(request: Request) {
       if (source.generatedIds !== 0) throw new ValidationError("El Excel necesita ID Pedido e ID Pago permanentes. Completa los identificadores antes de activar la sincronización para evitar registros duplicados.");
       const stored = await connection(db, ownerId);
       if (!stored?.refresh_cipher || stored.file_id !== id) throw new ValidationError("La conexión o el Excel seleccionado cambió. Vuelve a seleccionar el archivo.", 409);
+      const pendingWrite = await db.prepare("SELECT file_id FROM onedrive_write_jobs WHERE owner_id=$1").bind(ownerId).first();
+      if (pendingWrite) return json({ error: "Hay un envío web → Excel pendiente de verificar. Recupera ese envío antes de importar otra versión.", writePending: true }, 409);
       if (stored.synced_etag === etag) return json({ unchanged: true, changes: { createdOrders: 0, updatedOrders: 0, createdPayments: 0, createdExchanges: 0 }, lastSyncAt: stored.last_sync_at });
       if (stored.downloaded_etag !== etag) throw new ValidationError("Descarga la versión actual del archivo desde la conexión antes de sincronizar.", 409);
       const currentFile = await metadata(db, ownerId, config, id);
       if (currentFile.eTag !== etag) throw new ValidationError("El Excel se modificó mientras se leía. Descarga su última versión y vuelve a intentarlo.", 409);
       const input = parseImport(source, true);
-      const plan = await planSync(db, ownerId, id, input);
+      const business = parseBusinessImport(source);
+      input.orders = await normalizeOrdersWithClients(db, ownerId, input.orders, business.clients);
+      const preparedBusiness = await prepareBusinessImport(db, ownerId, business, { sourceFileId: id });
+      const plan = await planSync(db, ownerId, id, input, { allowWebChanges: canWrite(stored.granted_scope) });
       if (plan.conflicts.length) {
         const message = "No se sincronizó ninguna fila: hay cambios en la web que requieren revisión. Se conservaron todos los datos existentes.";
         await db.prepare("UPDATE onedrive_connections SET last_sync_error=$1 WHERE owner_id=$2 AND file_id=$3").bind(message, ownerId, id).run();
@@ -35,6 +43,7 @@ export async function POST(request: Request) {
       const ledgerExpectations = JSON.stringify(plan.ledgerExpectations);
       const ledgerBaselines = JSON.stringify(plan.nextLedgerBaselines);
       const prefix = [
+        assertSql(db, "NOT EXISTS(SELECT 1 FROM onedrive_write_jobs WHERE owner_id=$1)", [ownerId]),
         assertSql(db, "EXISTS (SELECT 1 FROM onedrive_connections WHERE owner_id=$1 AND file_id=$2 AND downloaded_etag=$3 AND revision=$4 AND refresh_cipher<>'')", [ownerId, id, etag, stored.revision]),
         assertSql(db, `NOT EXISTS (
           SELECT 1 FROM jsonb_array_elements($2::jsonb) i
@@ -58,7 +67,7 @@ export async function POST(request: Request) {
       const statements = buildImportStatements(db, ownerId, plan.input);
       const lastSyncAt = new Date().toISOString();
       const result = await db.batch([
-        ...prefix, ...statements,
+        ...prefix, ...preparedBusiness.clientStatements, ...statements, ...preparedBusiness.documentStatements,
         db.prepare(`INSERT INTO onedrive_baselines (owner_id,file_id,order_id,remote_hash,local_revision)
           SELECT $1,$2,value->>'orderId',value->>'remoteHash',(value->>'localRevision')::integer
           FROM jsonb_array_elements($3::jsonb)
@@ -70,7 +79,7 @@ export async function POST(request: Request) {
           ON CONFLICT(owner_id,file_id,kind,id) DO NOTHING`).bind(ownerId, id, ledgerBaselines),
         db.prepare("UPDATE onedrive_connections SET synced_etag=$1,etag=$2,last_sync_at=$3,last_sync_error='',revision=revision+1 WHERE owner_id=$4 AND file_id=$5 AND revision=$6").bind(etag, etag, lastSyncAt, ownerId, id, stored.revision),
       ]);
-      return json({ changes: importChanges(result.slice(prefix.length), plan.input), lastSyncAt });
+      return json({ changes: { ...importChanges(result.slice(prefix.length + preparedBusiness.clientStatements.length), plan.input), ...preparedBusiness.summary }, lastSyncAt });
     } catch (error) {
       if (isTransactionConflict(error) && requestedEtag) {
         const latest = await connection(db, ownerId);

@@ -7,11 +7,15 @@ export type Connection = {
   account: string; drive_id: string; file_id: string; file_name: string; web_url: string;
   last_modified_at: string; etag: string; synced_etag: string; downloaded_etag: string;
   last_sync_at: string; last_sync_error: string; revision: number;
+  granted_scope: string; last_write_at: string;
 };
 type Config = { clientId: string; clientSecret: string; redirectUri: string; tokenKey: string };
 export type DriveFile = { id: string; name: string; size?: number; lastModifiedDateTime?: string; eTag?: string; webUrl?: string; file?: unknown; remoteItem?: unknown; parentReference?: { path?: string; driveId?: string } };
 const TOKEN_ENDPOINT = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 const GRAPH = "https://graph.microsoft.com/v1.0";
+export const READ_SCOPE = "https://graph.microsoft.com/Files.Read offline_access";
+export const WRITE_SCOPE = "https://graph.microsoft.com/Files.ReadWrite offline_access";
+export function canWrite(scope?: string): boolean { return Boolean(scope?.split(/\s+/).some(value => value === "Files.ReadWrite" || value === "https://graph.microsoft.com/Files.ReadWrite")); }
 
 function decodeBase64(value: string): Uint8Array<ArrayBuffer> {
   try { return Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), char => char.charCodeAt(0)); }
@@ -22,6 +26,7 @@ export async function hash(value: string): Promise<string> { return base64Url(ne
 export function randomToken(): string { return base64Url(crypto.getRandomValues(new Uint8Array(32))); }
 
 export function configuration(_request: Request): { configured: boolean; missing: string[]; config?: Config } {
+  void _request;
   const values = { APP_ORIGIN: process.env.APP_ORIGIN, MICROSOFT_CLIENT_ID: process.env.MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET: process.env.MICROSOFT_CLIENT_SECRET, MICROSOFT_REDIRECT_URI: process.env.MICROSOFT_REDIRECT_URI, ONEDRIVE_TOKEN_KEY: process.env.ONEDRIVE_TOKEN_KEY };
   const missing = Object.entries(values).filter(([, value]) => !value?.trim()).map(([name]) => name);
   let publicOrigin = "";
@@ -76,9 +81,9 @@ export async function requestTokens(config: Config, parameters: Record<string, s
   let response: Response;
   try { response = await fetch(TOKEN_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: config.clientId, client_secret: config.clientSecret, ...parameters }), signal: AbortSignal.timeout(20_000) }); }
   catch { throw new ValidationError("Microsoft no respondió. Vuelve a intentarlo.", 502); }
-  const data = await response.json() as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string };
+  const data = await response.json() as { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; error?: string };
   if (!response.ok || !data.access_token) throw new ValidationError(data.error === "invalid_grant" ? "La autorización de Microsoft venció o fue revocada. Vuelve a conectar tu cuenta." : "Microsoft no autorizó la conexión. Revisa la configuración y vuelve a intentarlo.", data.error === "invalid_grant" ? 401 : 502);
-  return { accessToken: data.access_token, refreshToken: data.refresh_token, expiresAt: Date.now() + Math.max(60, Number(data.expires_in ?? 3600)) * 1000 };
+  return { accessToken: data.access_token, refreshToken: data.refresh_token, expiresAt: Date.now() + Math.max(60, Number(data.expires_in ?? 3600)) * 1000, grantedScope: data.scope || "" };
 }
 
 export async function accessToken(db: Database, ownerId: string, config: Config): Promise<string> {
@@ -87,9 +92,9 @@ export async function accessToken(db: Database, ownerId: string, config: Config)
   if (stored.access_cipher && stored.access_expires_at > Date.now() + 60_000) return decrypt(stored.access_cipher, config.tokenKey, ownerId);
   try {
     const refreshToken = await decrypt(stored.refresh_cipher, config.tokenKey, ownerId);
-    const tokens = await requestTokens(config, { grant_type: "refresh_token", refresh_token: refreshToken, scope: "https://graph.microsoft.com/Files.Read offline_access" });
-    await db.prepare("UPDATE onedrive_connections SET refresh_cipher=$1,access_cipher=$2,access_expires_at=$3 WHERE owner_id=$4 AND refresh_cipher=$5")
-      .bind(await encrypt(tokens.refreshToken ?? refreshToken, config.tokenKey, ownerId), await encrypt(tokens.accessToken, config.tokenKey, ownerId), tokens.expiresAt, ownerId, stored.refresh_cipher).run();
+    const tokens = await requestTokens(config, { grant_type: "refresh_token", refresh_token: refreshToken, scope: canWrite(stored.granted_scope) ? WRITE_SCOPE : READ_SCOPE });
+    await db.prepare("UPDATE onedrive_connections SET refresh_cipher=$1,access_cipher=$2,access_expires_at=$3,granted_scope=$6 WHERE owner_id=$4 AND refresh_cipher=$5")
+      .bind(await encrypt(tokens.refreshToken ?? refreshToken, config.tokenKey, ownerId), await encrypt(tokens.accessToken, config.tokenKey, ownerId), tokens.expiresAt, ownerId, stored.refresh_cipher, tokens.grantedScope || stored.granted_scope || "").run();
     return tokens.accessToken;
   } catch (error) {
     if (error instanceof ValidationError && error.status === 401) await db.prepare("UPDATE onedrive_connections SET refresh_cipher='',access_cipher='',access_expires_at=0,last_sync_error=$1 WHERE owner_id=$2 AND refresh_cipher=$3").bind(error.message, ownerId, stored.refresh_cipher).run();

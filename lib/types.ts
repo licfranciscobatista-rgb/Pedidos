@@ -1,6 +1,7 @@
 export const STATUSES = ["Pendiente", "Pedido", "En camino", "Recibido", "Entregado", "Cancelado", "Cambiado"] as const;
 export type OrderStatus = typeof STATUSES[number];
 export type Order = {
+  clientId?: string;
   id: string; client: string; phone: string; batch: string; article: string;
   variant: string; quantity: number; unitCents: number; extraCents: number;
   discountCents: number; status: OrderStatus; date: string; notes: string;
@@ -23,6 +24,7 @@ export type InvoiceItem = {
   orderId: string; article: string; variant: string; quantity: number;
   unitCents: number; extraCents: number; discountCents: number;
   totalCents: number; status: OrderStatus; platform: "Temu" | "SHEIN";
+  orderDate?: string; deliveryDate?: string;
   deliveryLabel: "Llega en esta entrega" | "Sigue pendiente" | "Ya entregado" | "Por confirmar";
 };
 export type Invoice = {

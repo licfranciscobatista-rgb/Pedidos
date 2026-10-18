@@ -1,10 +1,11 @@
 import { registerHooks } from "node:module";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Pool } from "pg";
 import { Database } from "../lib/db.ts";
+import { testDatabaseUrl } from "./postgres-safety.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const stub = new URL("./postgres-stubs.mjs", import.meta.url).href;
@@ -18,10 +19,10 @@ registerHooks({ resolve(specifier, context, nextResolve) {
   return nextResolve(specifier, context);
 }});
 
-export const hasTestDatabase = Boolean(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL);
+export const hasTestDatabase = Boolean(testDatabaseUrl());
 
 export async function createTestDatabase({ origin = "https://site.example" } = {}) {
-  const connectionString = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+  const connectionString = testDatabaseUrl();
   if (!connectionString) throw new Error("TEST_DATABASE_URL is required for PostgreSQL integration tests");
   const schema = `mi_encargo_test_${randomBytes(12).toString("hex")}`;
   // No caller-supplied identifier is used in CREATE/DROP. Cleanup may remove
@@ -51,8 +52,9 @@ export async function createTestDatabase({ origin = "https://site.example" } = {
   try {
     await admin.query(`CREATE SCHEMA "${schema}"`);
     created = true;
-    const migration = readFileSync(resolve(root, "db/migrations/0000_postgres.sql"), "utf8");
-    await pool.query(migration);
+    for (const file of readdirSync(resolve(root,"db/migrations")).filter(name=>/^\d{4}_[a-z0-9_]+\.sql$/.test(name)).sort()) {
+      await pool.query(readFileSync(resolve(root,"db/migrations",file),"utf8"));
+    }
     const database = ownerId => new Database(ownerId, pool);
     globalThis.__postgresTestDatabase = database;
     globalThis.__postgresTestUser = { userId: "owner-A" };

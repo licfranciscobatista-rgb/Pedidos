@@ -11,8 +11,9 @@
     "start": "node scripts/start.mjs",
     "lint": "eslint . --ignore-pattern .next",
     "db:migrate": "node scripts/migrate.mjs",
-    "test:unit": "node --experimental-transform-types --test tests/excel.test.mjs tests/auth.test.mjs tests/photos.test.mjs tests/onedrive-unit.test.mjs tests/onedrive-panel.test.mjs tests/onedrive-files.test.mjs",
-    "test:postgres": "node --experimental-transform-types --test tests/postgres.test.mjs tests/onedrive-postgres.test.mjs tests/auth-postgres.test.mjs"
+    "test:unit": "node --experimental-transform-types --test tests/excel.test.mjs tests/excel-v2.test.mjs tests/excel-writeback.test.mjs tests/excel-photo-writeback.test.mjs tests/business-panels.test.mjs tests/auth.test.mjs tests/photos.test.mjs tests/onedrive-unit.test.mjs tests/onedrive-panel.test.mjs tests/onedrive-files.test.mjs tests/postgres-safety.test.mjs",
+    "test:pdf": "node --experimental-transform-types --test tests/pdf.test.mjs",
+    "test:postgres": "node --env-file=.env.test --experimental-transform-types --test tests/postgres.test.mjs tests/business-postgres.test.mjs tests/excel-business-postgres.test.mjs tests/onedrive-postgres.test.mjs tests/onedrive-writeback-postgres.test.mjs tests/auth-postgres.test.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.922.0",

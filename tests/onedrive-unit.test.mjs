@@ -17,15 +17,15 @@ registerHooks({ resolve(specifier, context, nextResolve) {
   return nextResolve(specifier, context);
 }});
 
-const { encrypt, decrypt, hash, randomToken, configuration, oauthCookie, redirectBack } = await import("../app/api/onedrive/_core.ts");
-const { planSync } = await import("../app/api/onedrive/_sync.ts");
+const { encrypt, decrypt, hash, randomToken, configuration, oauthCookie, redirectBack, canWrite } = await import("../app/api/onedrive/_core.ts");
+const { planSync, orderCanonical } = await import("../app/api/onedrive/_sync.ts");
 const { parseOrder, parsePayment } = await import("../lib/validation.ts");
 
 function order(overrides = {}) {
   return { id: "pedido-uno", platform: "Temu", client: "Ana", phone: "", batch: "Grupo 1", article: "Cartera", variant: "Azul", quantity: 1, unitCents: 10000, extraCents: 0, discountCents: 0, storeCents: 7000, status: "Pedido", date: "2026-10-17", deliveryDate: "", notes: "", photoKey: "", revision: 0, ...overrides };
 }
 const payment = { id: "pago-uno", orderId: "pedido-uno", amountCents: 5000, kind: "Abono", date: "2026-10-17", method: "Efectivo", note: "" };
-async function orderHash(value) { const { revision, ...business } = parseOrder(value, "import"); return hash(JSON.stringify(business)); }
+async function orderHash(value) { const business = { ...parseOrder(value, "import") }; delete business.revision; return hash(JSON.stringify(business)); }
 function plannerDatabase({ orders = [], baselines = [], payments = [], exchanges = [], ledgerBaselines = [] } = {}) {
   return {
     prepare(sql) { return { sql, bind(...values) { return { sql, values }; } }; },
@@ -128,4 +128,28 @@ test("OneDrive planning: ledger baseline preserves payment deletion and immutabl
   assert.equal(same.conflicts.length, 0);
   assert.deepEqual(same.ledgerExpectations, [{ kind: "payment", id: payment.id, present: true }]);
   assert.deepEqual(same.nextLedgerBaselines, [baseline]);
+});
+
+test("El permiso de escritura se habilita solo con Files.ReadWrite realmente concedido", () => {
+  assert.equal(canWrite(undefined),false);assert.equal(canWrite("Files.Read offline_access"),false);
+  assert.equal(canWrite("https://graph.microsoft.com/Files.ReadWrite offline_access"),true);
+  assert.equal(canWrite("Files.ReadWrite offline_access"),true);
+  assert.equal(canWrite("Files.ReadWrite.All"),false);
+});
+
+test("Modo bidireccional conserva ediciones web sin declarar importada su revisión pendiente", async () => {
+  const old=order(), current=order({revision:4,notes:"Editar en web"}),remoteHash=await hash(orderCanonical(old));
+  const database=plannerDatabase({orders:[current],baselines:[{order_id:old.id,remote_hash:remoteHash,local_revision:3}]});
+  const preserved=await planSync(database,"owner-A","excel-uno",input([old]),{allowWebChanges:true});
+  assert.deepEqual(preserved.conflicts,[]);assert.deepEqual(preserved.input.orders,[current]);
+  assert.equal(preserved.nextBaselines[0].localRevision,3,"Revision 4 must stay pending until the conditional PUT is acknowledged");
+  const conflict=await planSync(database,"owner-A","excel-uno",input([order({unitCents:15000})]),{allowWebChanges:true});
+  assert.equal(conflict.conflicts.length,1);
+});
+
+test("Cambiar nombre o teléfono de un cliente vinculado no cambia la identidad del pedido", async () => {
+  const original=order({clientId:"CLI-1",client:"Nombre anterior",phone:"8091111111",revision:3});
+  const renamed={...original,client:"Nombre actual",phone:"8092222222"};
+  assert.equal(orderCanonical(original),orderCanonical(renamed));
+  const linkedElsewhere={...renamed,clientId:"CLI-2"};assert.notEqual(orderCanonical(renamed),orderCanonical(linkedElsewhere));
 });

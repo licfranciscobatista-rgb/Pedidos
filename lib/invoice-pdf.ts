@@ -85,6 +85,9 @@ export async function createInvoicePdf(invoice: Invoice): Promise<Uint8Array> {
     const item = invoice.items[index];
     const article = wrap(item.article, widths[0] - 14, 9, true);
     const details = wrap(`${item.platform}${item.variant ? ` - ${item.variant}` : ""}`, widths[0] - 14, 8);
+    const dateLabel = (value?: string) => /^\d{4}-\d{2}-\d{2}$/.test(value || "") ? `${value!.slice(8, 10)}/${value!.slice(5, 7)}/${value!.slice(0, 4)}` : "";
+    if (dateLabel(item.orderDate)) details.push(...wrap(`Pedido: ${dateLabel(item.orderDate)}`, widths[0] - 14, 8));
+    if (dateLabel(item.deliveryDate)) details.push(...wrap(`Entrega prevista: ${dateLabel(item.deliveryDate)}`, widths[0] - 14, 8));
     if (withItemAmounts && (item.extraCents > 0 || item.discountCents > 0)) details.push(...wrap(`Cargo: ${money(item.extraCents)} - Descuento: ${money(item.discountCents)}`, widths[0] - 14, 8));
     const delivery = wrap(item.deliveryLabel || "Por confirmar", widths[2] - 14, 8);
     const rowHeight = Math.max(38, 14 + article.length * 12 + details.length * 11, 14 + delivery.length * 11);

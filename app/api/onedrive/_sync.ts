@@ -9,14 +9,21 @@ type Baseline = { order_id: string; remote_hash: string; local_revision: number 
 export type SyncConflict = { orderId: string; client: string; article: string; reason: string };
 export type SyncExpectation = { id: string; revision: number | null; baselineHash: string | null; baselineRevision: number | null };
 
-function canonical(order: Order) {
+export function orderCanonical(order: Order) {
   const fields = parseOrder(order, "import");
   const { revision: _revision, ...business } = fields;
   void _revision;
+  // Name and phone are derived from the linked client. A client rename must
+  // not turn an unchanged article into a conflicting Excel edit.
+  if (fields.clientId) {
+    const { client: _client, phone: _phone, ...linked } = business;
+    void _client; void _phone;
+    return JSON.stringify(linked);
+  }
   return JSON.stringify(business);
 }
 
-export async function planSync(db: Database, ownerId: string, fileId: string, input: ImportInput) {
+export async function planSync(db: Database, ownerId: string, fileId: string, input: ImportInput, options: { allowWebChanges?: boolean } = {}) {
   const [currentResult, baselineResult, paymentsResult, exchangesResult, ledgerBaselinesResult] = await db.batch([
     db.prepare(`SELECT ${ORDER_COLUMNS} FROM orders WHERE owner_id=$1`).bind(ownerId),
     db.prepare("SELECT order_id,remote_hash,local_revision FROM onedrive_baselines WHERE owner_id=$1 AND file_id=$2").bind(ownerId, fileId),
@@ -38,19 +45,20 @@ export async function planSync(db: Database, ownerId: string, fileId: string, in
   for (const incoming of input.orders) {
     const local = current.get(incoming.id);
     const baseline = baselines.get(incoming.id);
-    const remoteCanonical = canonical(incoming);
+    const remoteCanonical = orderCanonical(incoming);
     const remoteHash = await hash(remoteCanonical);
-    const equal = local && canonical(local) === remoteCanonical;
+    const equal = local && orderCanonical(local) === remoteCanonical;
+    const preserveWeb = Boolean(options.allowWebChanges && local && baseline && remoteHash === baseline.remote_hash);
     let reason = "";
     if (!local && baseline) reason = "El artículo fue eliminado en la web después de sincronizarse. No se volverá a crear automáticamente.";
-    else if (local && !equal && baseline && local.revision !== baseline.local_revision) reason = "El artículo se modificó en la web después de la última sincronización. Revisa ambas versiones antes de continuar.";
-    else if (local && !equal && baseline && remoteHash === baseline.remote_hash) reason = "La web contiene datos distintos del último Excel importado. No se sobrescribirán automáticamente.";
+    else if (local && !equal && baseline && local.revision !== baseline.local_revision && !preserveWeb) reason = "El artículo se modificó en la web después de la última sincronización. Revisa ambas versiones antes de continuar.";
+    else if (local && !equal && baseline && remoteHash === baseline.remote_hash && !preserveWeb) reason = "La web contiene datos distintos del último Excel importado. No se sobrescribirán automáticamente.";
     else if (local && !equal && !baseline && (incoming.revision <= 0 || incoming.revision !== local.revision)) reason = "Este identificador ya existe en la web sin una sincronización previa y los datos difieren. Usa la revisión actual del pedido para vincularlo.";
     if (reason) { conflicts.push({ orderId: incoming.id, client: incoming.client, article: incoming.article, reason }); continue; }
     const expectedRevision = local?.revision ?? null;
-    orders.push({ ...incoming, revision: local?.revision ?? 0 });
+    orders.push(preserveWeb && local ? local : { ...incoming, revision: local?.revision ?? 0 });
     expectations.push({ id: incoming.id, revision: expectedRevision, baselineHash: baseline?.remote_hash ?? null, baselineRevision: baseline?.local_revision ?? null });
-    nextBaselines.push({ orderId: incoming.id, remoteHash, localRevision: local ? local.revision + (equal ? 0 : 1) : 1 });
+    nextBaselines.push({ orderId: incoming.id, remoteHash, localRevision: preserveWeb && !equal ? baseline!.local_revision : local ? local.revision + (equal ? 0 : 1) : 1 });
   }
   for (const [kind, incomingItems] of [["payment", input.payments], ["exchange", input.exchanges]] as const) {
     for (const incoming of incomingItems) {

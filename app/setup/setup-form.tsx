@@ -11,8 +11,9 @@ export default function SetupForm({ ownerUsername }: { ownerUsername: string }) 
     // URL fragments never reach server access logs. Remove it after reading.
     const params = new URLSearchParams(window.location.hash.slice(1));
     const supplied = params.get("setup");
-    if (supplied) setSetupToken(supplied);
     if (window.location.hash) window.history.replaceState(null, "", window.location.pathname);
+    const timer = window.setTimeout(() => { if (supplied) setSetupToken(supplied); }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError("");

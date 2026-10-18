@@ -64,3 +64,12 @@ test("PDF manual muestra total elegido y saldo de factura, sin precios por artí
 test("PDF no cambia silenciosamente nombres con caracteres fuera de Helvetica", async () => {
   await assert.rejects(createInvoicePdf({ ...fixture, client: "María 🧵" }), /Usa el botón Imprimir/);
 });
+
+test("PDF conserva las fechas capturadas al emitir y no inventa fechas para documentos anteriores", async () => {
+  const dated = await save({ ...fixture, items: [{ ...fixture.items[0], orderDate: "2026-10-17", deliveryDate: "2026-11-03" }] }, "invoice-dates");
+  const text = dated.texts.join("\n");
+  assert.ok(text.includes("Pedido: 17/10/2026"));
+  assert.ok(text.includes("Entrega prevista: 03/11/2026"));
+  const legacy = await save({ ...fixture, items: [fixture.items[0]] }, "invoice-legacy-dates");
+  assert.doesNotMatch(legacy.texts.join("\n"), /Pedido:|Entrega prevista:/);
+});

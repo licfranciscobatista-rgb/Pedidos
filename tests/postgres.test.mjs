@@ -95,19 +95,19 @@ test("PostgreSQL real: centavos, carreras, importación atómica, facturas e ais
       assert.equal((await fixture.pool.query("SELECT COUNT(*) AS count FROM orders WHERE id='also-rollback'")).rows[0].count, 0);
     });
     await t.test("facturas concurrentes son inmutables e idempotentes; monto manual exacto", async () => {
-      const input = { orderIds: ["imported"], businessName: "Mis pedidos", notes: "Entrega", requestId: crypto.randomUUID(), pricingMode: "manual", manualTotalCents: 100_000_000_000, showAmounts: false, deliveryLabels: { imported: "Sigue pendiente" } };
+      const input = { orderIds: ["imported"], businessName: "Mis pedidos", notes: "Entrega", requestId: crypto.randomUUID(), pricingMode: "manual", manualTotalCents: 100_000_000, showAmounts: true, deliveryLabels: { imported: "Sigue pendiente" } };
       const before = (await fixture.pool.query("SELECT * FROM orders ORDER BY id")).rows;
       const replies = await Promise.all([invoices.POST(request("/api/invoices", "POST", input)), invoices.POST(request("/api/invoices", "POST", input))]);
       assert.deepEqual(replies.map(item => item.status).sort(), [200, 201]);
       const saved = await Promise.all(replies.map(item => item.json()));
       assert.deepEqual(saved[0].invoice, saved[1].invoice);
       const snapshot = saved[0].invoice;
-      assert.equal(snapshot.totalCents, 100_000_000_000);
+      assert.equal(snapshot.totalCents, 100_000_000);
       assert.equal(snapshot.paidCents, 1500);
-      assert.equal(snapshot.balanceCents, 99_999_998_500);
+      assert.equal(snapshot.balanceCents, 99_998_500);
       assert.equal(snapshot.registeredTotalCents, 10000);
       assert.equal(snapshot.items[0].deliveryLabel, "Sigue pendiente");
-      assert.equal(snapshot.showAmounts, false);
+      assert.equal(snapshot.showAmounts, true);
       assert.equal(snapshot.client, "María Pérez");
       assert.equal((await fixture.pool.query("SELECT COUNT(*) AS count FROM activities WHERE kind='Factura emitida'")).rows[0].count, 1);
       assert.deepEqual((await fixture.pool.query("SELECT * FROM orders ORDER BY id")).rows, before);

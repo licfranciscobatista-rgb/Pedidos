@@ -4,8 +4,9 @@ import { getDatabase, type Database } from "@/lib/db";
 export { isTransactionConflict, isUniqueViolation } from "@/lib/db";
 import { ValidationError } from "@/lib/validation";
 import type { Invoice } from "@/lib/types";
+import { businessReadStatements } from "@/lib/business-import";
 
-export const ORDER_COLUMNS = `id, platform, client, phone, batch, article, variant, quantity, unit_cents AS "unitCents", extra_cents AS "extraCents", discount_cents AS "discountCents", store_cents AS "storeCents", status, date, delivery_date AS "deliveryDate", notes, photo_key AS "photoKey", revision`;
+export const ORDER_COLUMNS = `id, platform, client_id AS "clientId", client, phone, batch, article, variant, quantity, unit_cents AS "unitCents", extra_cents AS "extraCents", discount_cents AS "discountCents", store_cents AS "storeCents", status, date, delivery_date AS "deliveryDate", notes, photo_key AS "photoKey", revision`;
 export const PAYMENT_COLUMNS = `id, order_id AS "orderId", kind, amount_cents AS "amountCents", date, method, note`;
 export const EXCHANGE_COLUMNS = `id, order_id AS "orderId", date, old_article AS "oldArticle", new_article AS "newArticle", old_total_cents AS "oldTotalCents", new_total_cents AS "newTotalCents", difference_cents AS "differenceCents", note`;
 export const ACTIVITY_COLUMNS = `id, at, kind, order_id AS "orderId", client, summary, detail`;
@@ -86,8 +87,9 @@ export async function readData(db: Database, ownerId: string) {
     db.prepare(`SELECT ${EXCHANGE_COLUMNS} FROM exchanges WHERE owner_id = $1 ORDER BY date DESC, id DESC`).bind(ownerId),
     db.prepare(`SELECT ${ACTIVITY_COLUMNS} FROM activities WHERE owner_id = $1 ORDER BY at DESC, insertion_sequence DESC LIMIT 500`).bind(ownerId),
     db.prepare(`SELECT ${INVOICE_COLUMNS} FROM invoices WHERE owner_id = $1 ORDER BY sequence DESC LIMIT 500`).bind(ownerId),
+    ...businessReadStatements(db, ownerId),
   ]);
-  return { orders: result[0].results, payments: result[1].results, exchanges: result[2].results, activities: result[3].results, invoices: result[4].results.map(invoiceFromRow) };
+  return { orders: result[0].results, payments: result[1].results, exchanges: result[2].results, activities: result[3].results, invoices: result[4].results.map(invoiceFromRow), clients: result[5].results, quotes: result[6].results, invoiceDrafts: result[7].results };
 }
 
 export function invoiceFromRow(row: unknown): Invoice {

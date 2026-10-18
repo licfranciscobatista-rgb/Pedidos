@@ -59,8 +59,9 @@ export function parseOrder(value: unknown, mode: "create" | "update" | "import" 
   const revision = mode === "create" ? 1 : parseInteger(source.revision ?? (mode === "import" ? 0 : undefined), "Versión del artículo", mode === "import" ? 0 : 1, 2_147_483_646);
   return {
     id: parseId(source.id),
+    ...(source.clientId == null || source.clientId === "" ? {} : { clientId: parseId(source.clientId, "ID Cliente") }),
     platform: source.platform === "Temu" || source.platform === "SHEIN" ? source.platform : (() => { throw new ValidationError("Selecciona Temu o SHEIN."); })(),
-    client: parseText(source.client, "Cliente", 120, true),
+    client: parseText(source.client, "Cliente", 120, !source.clientId),
     phone: parseText(source.phone, "Teléfono", 40),
     batch: parseText(source.batch, "Grupo o pedido", 100),
     article: parseText(source.article, "Artículo", 200, true),
@@ -141,5 +142,5 @@ export function parseInvoiceRequest(value: unknown): { orderIds: string[]; busin
     if (typeof label !== "string" || !allowedLabels.includes(label)) throw new ValidationError("Selecciona un aviso de entrega válido para cada artículo.");
     deliveryLabels[id] = label;
   }
-  return { orderIds, businessName: parseText(source.businessName, "Nombre del negocio", 160, true), notes: parseText(source.notes, "Notas de la factura", 2000), requestId: source.requestId, pricingMode: source.pricingMode, showAmounts: source.showAmounts, manualTotalCents: parseInteger(source.manualTotalCents ?? 0, "Monto manual", 0, 100_000_000_000), deliveryLabels };
+  return { orderIds, businessName: parseText(source.businessName, "Nombre del negocio", 160) || "Mi encargo", notes: parseText(source.notes, "Notas de la factura", 2000), requestId: source.requestId, pricingMode: source.showAmounts ? source.pricingMode : "items", showAmounts: source.showAmounts, manualTotalCents: source.showAmounts && source.pricingMode === "manual" ? parseInteger(source.manualTotalCents ?? 0, "Monto manual", 0, MAX_MONEY_CENTS) : 0, deliveryLabels };
 }

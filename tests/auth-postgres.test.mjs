@@ -7,6 +7,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Pool } from "pg";
 import { legacyPassword, legacyHash } from "./auth-legacy-fixture.mjs";
+import { testDatabaseUrl } from "./postgres-safety.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const stub = new URL("./auth-postgres-stubs.mjs", import.meta.url).href;
@@ -28,7 +29,7 @@ const access = await import("../app/api/access/route.ts");
 const setup = await import("../app/api/auth/setup/route.ts");
 const login = await import("../app/api/auth/login/route.ts");
 const logout = await import("../app/api/auth/logout/route.ts");
-const connectionString = process.env.TEST_DATABASE_URL;
+const connectionString = testDatabaseUrl();
 
 test("PostgreSQL real: bootstrap cerrado, sesiones, logout, falsificación y límites persistentes", { skip: !connectionString }, async t => {
   const schema = `mi_encargo_auth_test_${randomBytes(12).toString("hex")}`;

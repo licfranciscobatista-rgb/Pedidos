@@ -7,9 +7,9 @@ import ts from "typescript";
 function loadModule(path, imports = {}) {
   const source = readFileSync(new URL(path, import.meta.url), "utf8");
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const module = { exports: {} };
-  runInNewContext(compiled, { module, exports: module.exports, URL, require(name) { if (name in imports) return imports[name]; throw new Error(`Unexpected import: ${name}`); } });
-  return module.exports;
+  const testModule = { exports: {} };
+  runInNewContext(compiled, { module: testModule, exports: testModule.exports, URL, require(name) { if (name in imports) return imports[name]; throw new Error(`Unexpected import: ${name}`); } });
+  return testModule.exports;
 }
 const validation = loadModule("../lib/validation.ts");
 const book = { id: "original-book", name: "PROGRAMA  DE PEDIDOS.xlsx", size: 18973, file: {}, parentReference: { path: "/drive/root:/Documents" }, webUrl: "https://onedrive.live.com/original" };

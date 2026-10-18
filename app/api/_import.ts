@@ -3,7 +3,7 @@ import { assertSql } from "./_shared";
 import type { Database, DbResult, PreparedStatement } from "@/lib/db";
 
 const orderFields = {
-  id: "id", platform: "platform", client: "client", phone: "phone", batch: "batch", article: "article", variant: "variant",
+  id: "id", platform: "platform", client_id: "clientId", client: "client", phone: "phone", batch: "batch", article: "article", variant: "variant",
   quantity: "quantity", unit_cents: "unitCents", extra_cents: "extraCents", discount_cents: "discountCents", store_cents: "storeCents",
   status: "status", date: "date", delivery_date: "deliveryDate", notes: "notes", photo_key: "photoKey", revision: "revision",
 };
@@ -13,10 +13,14 @@ const exchangeFields = { id: "id", order_id: "orderId", date: "date", old_articl
 const integerFields = new Set(["quantity", "revision"]);
 const moneyFields = new Set(["unit_cents", "extra_cents", "discount_cents", "store_cents", "amount_cents", "old_total_cents", "new_total_cents", "difference_cents"]);
 function incoming(fields: Record<string, string>, placeholder = "$2") {
-  return `SELECT ${Object.entries(fields).map(([column, key]) => `(value->>'${key}')::${integerFields.has(column) ? "integer" : moneyFields.has(column) ? "bigint" : "text"} AS ${column}`).join(",")} FROM jsonb_array_elements(${placeholder}::jsonb)`;
+  const raw = `SELECT ${Object.entries(fields).map(([column, key]) => `(value->>'${key}')::${integerFields.has(column) ? "integer" : moneyFields.has(column) ? "bigint" : "text"} AS ${column}`).join(",")} FROM jsonb_array_elements(${placeholder}::jsonb)`;
+  if(fields!==orderFields)return raw;
+  return `SELECT ${Object.keys(fields).map(column=>column==="client_id"?"COALESCE(raw.client_id,prior.client_id) AS client_id":column==="client"?"COALESCE(master.name,raw.client) AS client":column==="phone"?"COALESCE(master.phone,raw.phone) AS phone":`raw.${column}`).join(",")} FROM (${raw}) raw LEFT JOIN orders prior ON prior.owner_id=$1 AND prior.id=raw.id LEFT JOIN clients master ON master.owner_id=$1 AND master.id=COALESCE(raw.client_id,prior.client_id)`;
 }
 function same(fields: Record<string, string>, left: string, right: string, excluded: string[] = ["id", "revision"]) {
-  return Object.keys(fields).filter(key => !excluded.includes(key)).map(key => `${left}.${key} IS NOT DISTINCT FROM ${right}.${key}`).join(" AND ");
+  const linked=fields===orderFields;
+  const comparison=Object.keys(fields).filter(key => !excluded.includes(key)&&!(linked&&["client","phone"].includes(key))).map(key => `${left}.${key} IS NOT DISTINCT FROM ${right}.${key}`).join(" AND ");
+  return linked?`${comparison} AND (${left}.client_id IS NOT NULL OR (${left}.client IS NOT DISTINCT FROM ${right}.client AND ${left}.phone IS NOT DISTINCT FROM ${right}.phone))`:comparison;
 }
 
 export type ImportInput = ReturnType<typeof parseImport>;

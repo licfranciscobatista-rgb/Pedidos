@@ -16,6 +16,7 @@ function categoryOf(kind: string): Category {
   if (/order|pedido|articulo/.test(key)) return "Pedidos";
   return "Otros";
 }
+const invoiceIdFor = (item: Pick<Activity, "detail">) => /^Factura:\s*([A-Za-z0-9_-]+)/.exec(item.detail)?.[1] || "";
 function dateParts(at: string) {
   const date = new Date(at);
   if (!Number.isFinite(date.getTime())) return { day: "Fecha no disponible", time: at, search: at };
@@ -32,11 +33,12 @@ function CategoryIcon({ category }: { category: Category }) {
   return <History size={17} aria-hidden="true" />;
 }
 
-export default function HistoryPanel({ activities, onOpenOrder, orderIds }: { activities: Activity[]; onOpenOrder: (id: string) => void; orderIds: string[] }) {
+export default function HistoryPanel({ activities, onOpenOrder, orderIds, invoiceIds = [], onOpenInvoice }: { activities: Activity[]; onOpenOrder: (id: string) => void; orderIds: string[]; invoiceIds?: string[]; onOpenInvoice?: (id: string) => void }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<typeof filters[number]>("Todos");
   const [limit, setLimit] = useState(50);
   const knownOrders = useMemo(() => new Set(orderIds), [orderIds]);
+  const knownInvoices = useMemo(() => new Set(invoiceIds), [invoiceIds]);
   const items = useMemo(() => activities.map(activity => ({ ...activity, category: categoryOf(activity.kind), date: dateParts(activity.at) })).sort((a, b) => b.at.localeCompare(a.at)), [activities]);
   const query = normalize(search);
   const matched = items.filter(item => (filter === "Todos" || item.category === filter) && (!query || normalize(`${item.client} ${item.summary} ${item.detail} ${item.kind} ${item.category} ${item.orderId} ${item.date.day} ${item.date.search}`).includes(query)));
@@ -51,7 +53,7 @@ export default function HistoryPanel({ activities, onOpenOrder, orderIds }: { ac
     <div className="orders-panel history-list">
       {!activities.length ? <div className="empty-state compact"><History size={32} aria-hidden="true" /><h3>Tu historial empieza aquí</h3><p>Los nuevos pedidos, pagos, cambios, facturas e importaciones aparecerán aquí al guardarlos.</p></div> : !matched.length ? <div className="empty-state compact"><Search size={29} aria-hidden="true" /><h3>No encontramos movimientos</h3><p>Prueba otro nombre, fecha o tipo de movimiento.</p><button type="button" className="button button-secondary" onClick={() => { setSearch(""); setFilter("Todos"); setLimit(50); }}>Ver todo el historial</button></div> : <ol className="history-timeline">{visible.map((item, index) => <li className="history-entry" key={item.id}>
         {(index === 0 || visible[index - 1].date.day !== item.date.day) && <h3 className="history-day">{item.date.day}</h3>}
-        <article className="history-item"><div className={`history-icon history-icon-${item.category === "Pagos" ? "payment" : item.category === "Facturas" ? "invoice" : "order"}`}><CategoryIcon category={item.category} /></div><div className="history-content"><div className="history-item-top"><span className="history-category">{item.category === "Otros" ? "Actividad" : item.category}</span><time dateTime={item.at}>{item.date.time}</time></div><h4>{item.summary || "Movimiento registrado"}</h4>{item.client && <p className="history-client">{item.client}</p>}{item.detail && <p className="history-detail">{item.detail}</p>}{item.orderId && <div className="history-order">{knownOrders.has(item.orderId) ? <button type="button" className="text-button" onClick={() => onOpenOrder(item.orderId)}>Ver artículo <ArrowRight size={13} aria-hidden="true" /></button> : <span>El artículo ya no está disponible.</span>}<small>{item.orderId}</small></div>}</div></article>
+        <article className="history-item"><div className={`history-icon history-icon-${item.category === "Pagos" ? "payment" : item.category === "Facturas" ? "invoice" : "order"}`}><CategoryIcon category={item.category} /></div><div className="history-content"><div className="history-item-top"><span className="history-category">{item.category === "Otros" ? "Actividad" : item.category}</span><time dateTime={item.at}>{item.date.time}</time></div><h4>{item.summary || "Movimiento registrado"}</h4>{item.client && <p className="history-client">{item.client}</p>}{item.detail && <p className="history-detail">{item.detail}</p>}{onOpenInvoice && knownInvoices.has(invoiceIdFor(item)) && <div className="history-order"><button type="button" className="text-button" onClick={() => onOpenInvoice(invoiceIdFor(item))}>Ver factura <ArrowRight size={13} aria-hidden="true" /></button></div>}{item.orderId && <div className="history-order">{knownOrders.has(item.orderId) ? <button type="button" className="text-button" onClick={() => onOpenOrder(item.orderId)}>Ver artículo <ArrowRight size={13} aria-hidden="true" /></button> : <span>El artículo ya no está disponible.</span>}<small>{item.orderId}</small></div>}</div></article>
       </li>)}</ol>}
       {!!matched.length && <div className="history-footer"><span aria-live="polite">{visible.length} de {matched.length} movimientos{filter !== "Todos" || query ? " encontrados" : " recientes"}</span>{visible.length < matched.length && <button type="button" className="button button-secondary" onClick={() => setLimit(value => value + 50)}>Ver 50 más</button>}</div>}
     </div>

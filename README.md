@@ -1,10 +1,11 @@
 # Mi encargo
 
-Web privada para organizar pedidos de Temu y SHEIN, clientes, fotos, abonos, devoluciones, cambios, historial y facturas en pesos dominicanos.
+Web privada para organizar pedidos de Temu y SHEIN, clientes, cotizaciones, fotos, abonos, devoluciones, cambios, historial y facturas en pesos dominicanos.
 
 ## Funcionamiento
 
 - Foto, cliente, variante, precio al cliente y pago a tienda por separado.
+- Registro de clientes por ID, cotizaciones con artículos propios y borradores de factura relacionados con los pedidos.
 - Importación y exportación Excel con IDs estables y fotos. Plantilla en public/plantilla-pedidos.xlsx.
 - Cancelar conserva los movimientos y el saldo a favor. Los cambios conservan el ID y los pagos.
 - Historial registrado en la misma transacción que cada operación.
@@ -28,14 +29,26 @@ La cuenta única se crea en /setup con el usuario configurado y una clave de ins
 
 La importación manual funciona sin aplicación Microsoft. La lectura automática requiere registrar y autorizar una aplicación Microsoft y configurar MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_REDIRECT_URI y ONEDRIVE_TOKEN_KEY. Render y Neon no conceden acceso a OneDrive. Ver docs/onedrive-setup.md.
 
-La sincronización lee Excel hacia la web cuando la página está abierta y visible. Revisiones y baselines impiden sobrescribir cambios locales o restaurar movimientos eliminados. Las filas ausentes del Excel no borran pedidos de la web.
+La sincronización lee Excel hacia la web cuando la página está abierta y visible. El consentimiento adicional Files.ReadWrite activa el envío web → Excel, con escritura condicionada por eTag y trabajos durables. Revisiones y baselines detectan cambios simultáneos; las filas ausentes del Excel no borran pedidos de la web. Las facturas escritas en Excel llegan como borradores y solo se emiten mediante una acción explícita en la web. El archivo incluye hojas de consulta de las emitidas.
+
+### Regenerar la plantilla
+
+`scripts/build-workbook.mjs` genera por defecto `public/plantilla-pedidos.xlsx`: 14 hojas con resumen, consultas por ID, tablas, fórmulas y desplegables. La plantilla no incluye clientes, pedidos, fotografías ni una copia del archivo original.
+
+Es una herramienta de desarrollo que usa `@oai/artifact-tool` del runtime de documentos de Codex. No forma parte de las dependencias ni del arranque de producción. Después de obtener la ruta de paquetes con `load_workspace_dependencies`, en PowerShell:
+
+    $env:CODEX_WORKSPACE_NODE_MODULES = '<ruta de Node.js packages del runtime>'
+    node scripts/build-workbook.mjs
+
+`--output <ruta.xlsx>` cambia el destino y `--previews <carpeta>` guarda las vistas de verificación. El modo privado `--source <libro-original.xlsx>` conserva los dos pedidos y la hoja de referencia del formato original. Este modo exige `--output` fuera de `public/` para evitar publicar datos personales. Mantener sus archivos y vistas fuera del repositorio.
 
 ## Pruebas
 
     npm run test:unit
-    node --env-file=.env.test --experimental-transform-types --test tests/postgres.test.mjs tests/onedrive-postgres.test.mjs tests/auth-postgres.test.mjs
+    npm run test:postgres
+    npm run test:pdf
     npm run build
 
-TEST_DATABASE_URL debe ser un endpoint directo de una rama QA. Las suites generan esquemas aleatorios aislados y solo eliminan esos esquemas al terminar. No usar datos financieros de producción en pruebas exploratorias.
+TEST_DATABASE_URL debe apuntar a la rama QA verificada en tests/postgres-safety.mjs. Cambiar de rama de pruebas requiere actualizar conscientemente esa lista permitida. Las suites generan esquemas aleatorios aislados y solo eliminan esos esquemas al terminar. No usar datos financieros de producción en pruebas exploratorias.
 
 El plan gratuito de Render puede suspender el servidor por inactividad. Los datos y las fotos permanecen en Neon.

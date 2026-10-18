@@ -1,0 +1,60 @@
+import{test}from"node:test";
+import assert from"node:assert/strict";
+import{registerHooks}from"node:module";
+import{existsSync}from"node:fs";
+import{fileURLToPath,pathToFileURL}from"node:url";
+import JSZip from"jszip";
+registerHooks({resolve(specifier,context,nextResolve){if(specifier.startsWith("@/"))return{url:new URL(`../${specifier.slice(2)}.ts`,import.meta.url).href,shortCircuit:true};if(specifier.startsWith(".")&&context.parentURL?.startsWith("file:")){const candidate=fileURLToPath(new URL(specifier,context.parentURL));if(existsSync(candidate+".ts"))return{url:pathToFileURL(candidate+".ts").href,shortCircuit:true};}return nextResolve(specifier,context);}});
+const{embedOrderPhotos,embedStoredOrderPhotos}=await import("../lib/excel-photo-writeback.ts");
+const{parseExcel,exportExcel}=await import("../lib/excel.ts");
+const{patchWorkbook}=await import("../lib/excel-writeback.ts");
+const{readInCellPhotos}=await import("../lib/incell-photos.ts");
+const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9xkAAAAASUVORK5CYII=","base64");
+const otherPng=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","base64");
+const key="11111111-1111-8111-8111-111111111111";
+const order=(id,photoKey="")=>({id,client:"Ana",phone:"",batch:"",article:"Bolso",variant:"Azul",quantity:2,unitCents:65000,extraCents:10000,discountCents:5000,platform:"Temu",storeCents:70000,status:"Pedido",date:"2026-10-18",deliveryDate:"",notes:"",photoKey,revision:1});
+const photo=(orderId,bytes=otherPng)=>({orderId,bytes,contentType:"image/png"});
+const array=bytes=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
+test("photo writeback inserts visible photo, preserves another order and reimports without duplicate photo",async()=>{
+ const book=await exportExcel([order("P-1"),order("P-2",key)],[],[],async()=>new Blob([png],{type:"image/png"}));
+ const before=await JSZip.loadAsync(await book.arrayBuffer());before.file("custom/keep-me.bin",Buffer.from([12,34,56]));const source=await before.generateAsync({type:"uint8array"});
+ const written=await embedOrderPhotos(source,[photo("P-1")]),after=await JSZip.loadAsync(written),parsed=await parseExcel(array(written));
+ assert.deepEqual(parsed.errors,[]);assert.equal(parsed.photos.length,2);assert.deepEqual(parsed.photos.map(p=>p.orderId).sort(),["P-1","P-2"]);assert.deepEqual(Buffer.from(await parsed.photos.find(p=>p.orderId==="P-1").blob.arrayBuffer()),otherPng);
+ assert.match(parsed.orders[0].photoKey,/^[a-f0-9-]{36}$/);assert.equal(parsed.orders[1].photoKey,key);
+ assert.deepEqual(await after.file("custom/keep-me.bin").async("nodebuffer"),Buffer.from([12,34,56]));
+ assert.deepEqual(await after.file("xl/media/image1.png").async("nodebuffer"),await before.file("xl/media/image1.png").async("nodebuffer"));
+ const repeat=await embedOrderPhotos(written,[photo("P-1")]);assert.deepEqual(repeat,written);
+ const replaced=await embedOrderPhotos(written,[photo("P-1",png)]),replacement=await parseExcel(array(replaced));assert.deepEqual(replacement.errors,[]);assert.equal(replacement.photos.length,2);
+ const replacedZip=await JSZip.loadAsync(replaced);assert.equal(Object.keys(replacedZip.files).filter(path=>/^xl\/media\/[^/]+\.(?:png|jpe?g)$/i.test(path)).length,2,"La foto nativa idéntica debe reutilizarse sin otra copia");assert.equal(Buffer.from(await embedOrderPhotos(replaced,[photo("P-1",png)])).equals(Buffer.from(replaced)),true);
+ const noChanges=await embedOrderPhotos(replaced,[]);assert.deepEqual(noChanges,replaced);
+ const removed=await embedOrderPhotos(replaced,[{orderId:"P-1",remove:true}]),without=await parseExcel(array(removed));assert.deepEqual(without.errors,[]);assert.equal(without.photos.length,1);assert.equal(without.photos[0].orderId,"P-2");assert.equal(without.orders[0].photoKey,"");const twice=await embedOrderPhotos(removed,[{orderId:"P-1",remove:true}]);assert.equal(Buffer.from(twice).equals(Buffer.from(removed)),true);
+ const removedZip=await JSZip.loadAsync(removed),originalSheet=await before.file("xl/worksheets/sheet1.xml").async("string"),removedSheet=await removedZip.file("xl/worksheets/sheet1.xml").async("string");for(const ref of["R2","S2","T2","R3","S3","T3"]){const pattern=new RegExp(`<c r="${ref}"[^>]*?(?:/>|>[\\s\\S]*?</c>)`);assert.equal(pattern.exec(removedSheet)?.[0],pattern.exec(originalSheet)?.[0],`La fórmula ${ref} debe conservarse exactamente`);}
+});
+test("photo XML follows a changed record patch and header positions, retaining formulas and validation",async()=>{
+ const source=await exportExcel([order("P-1")],[]),zip=await JSZip.loadAsync(await source.arrayBuffer());
+ let xml=await zip.file("xl/worksheets/sheet1.xml").async("string");xml=xml.replace("</worksheet>",'<dataValidations count="1"><dataValidation type="list" sqref="L2:L20"><formula1>"Pedido,Entregado"</formula1></dataValidation></dataValidations></worksheet>');zip.file("xl/worksheets/sheet1.xml",xml);
+ const initial=await zip.generateAsync({type:"uint8array"}),changed={...order("P-1"),article:"Bolso corregido",photoKey:key,revision:2};
+ const patched=await patchWorkbook(initial,{orders:[changed],payments:[],clients:[],quotes:[],invoiceDrafts:[],invoices:[]});
+ const embedded=await embedOrderPhotos(patched,[photo("P-1")]),parsed=await parseExcel(array(embedded));assert.deepEqual(parsed.errors,[]);assert.equal(parsed.orders[0].article,"Bolso corregido");assert.equal(parsed.orders[0].photoKey,key);assert.equal(parsed.photos.length,1);
+ const result=await JSZip.loadAsync(embedded),xmlAfter=await result.file("xl/worksheets/sheet1.xml").async("string");assert.match(xmlAfter,/dataValidations/);assert.match(xmlAfter,/<f>IF\(/);
+});
+test("replacing one rich in-cell photo leaves the other cell's rich image and metadata intact",async()=>{
+ const source=await exportExcel([order("P-1"),order("P-2")],[]),zip=await JSZip.loadAsync(await source.arrayBuffer());let sheet=await zip.file("xl/worksheets/sheet1.xml").async("string");
+ for(const row of[2,3]){const cell=`<c r="Q${row}" t="e" vm="1"><v>#VALUE!</v></c>`;sheet=sheet.replace(new RegExp(`<c r="Q${row}"[^>]*(?:/>|>[\\s\\S]*?</c>)`),cell);if(!sheet.includes(`r="Q${row}"`))sheet=sheet.replace(new RegExp(`(<row r="${row}"[^>]*>[\\s\\S]*?)(</row>)`),`$1${cell}$2`);}zip.file("xl/worksheets/sheet1.xml",sheet);
+ zip.file("xl/metadata.xml",'<metadata><metadataTypes><metadataType name="XLRICHVALUE"/></metadataTypes><futureMetadata name="XLRICHVALUE"><bk><extLst><ext><rvb i="0"/></ext></extLst></bk></futureMetadata><valueMetadata><bk><rc t="1" v="0"/></bk></valueMetadata></metadata>');
+ zip.file("xl/richData/rdrichvaluestructure.xml",'<rvStructures><s t="_localImage"><k n="_rvRel:LocalImageIdentifier" t="i"/><k n="CalcOrigin" t="i"/></s></rvStructures>');
+ zip.file("xl/richData/rdrichvalue.xml",'<rvData><rv s="0"><v>0</v><v>5</v></rv></rvData>');zip.file("xl/richData/richValueRel.xml",'<richValueRels xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><rel r:id="rId1"/></richValueRels>');zip.file("xl/richData/_rels/richValueRel.xml.rels",'<Relationships><Relationship Id="rId1" Target="../media/old-rich.png"/></Relationships>');zip.file("xl/media/old-rich.png",png);
+ const bytes=await zip.generateAsync({type:"uint8array"}),result=await embedOrderPhotos(bytes,[photo("P-1")]),rich=await readInCellPhotos(array(result),"Pedidos");assert.equal(rich.length,1);assert.equal(rich[0].row,3);
+ const parsed=await parseExcel(array(result));assert.deepEqual(parsed.errors,[]);assert.equal(parsed.photos.length,2);const after=await JSZip.loadAsync(result);assert.equal(await after.file("xl/metadata.xml").async("string"),await zip.file("xl/metadata.xml").async("string"));assert.deepEqual(await after.file("xl/media/old-rich.png").async("nodebuffer"),png);
+ const removed=await embedOrderPhotos(bytes,[{orderId:"P-1",remove:true}]),without=await parseExcel(array(removed));assert.deepEqual(without.errors,[]);assert.equal(without.photos.length,1);assert.equal(without.photos[0].orderId,"P-2");assert.equal(without.orders[0].photoKey,"");
+});
+test("private storage wrapper preserves owner boundary, blank photos and actionable failures",async()=>{
+ const source=new Uint8Array(await(await exportExcel([order("P-1")],[])).arrayBuffer()),seen=[];
+ const bucket={get:async storageKey=>{seen.push(storageKey);return{body:otherPng,httpMetadata:{contentType:"image/png"}};}};
+ const output=await embedStoredOrderPhotos(source,"owner-A",[order("P-1",key)],bucket);assert.deepEqual(seen,[`owner-A/${key}`]);assert.equal((await parseExcel(array(output))).photos.length,1);
+ assert.deepEqual(await embedStoredOrderPhotos(source,"owner-A",[order("P-1")],{get:async()=>{throw Error("must not read storage");}}),source);
+ await assert.rejects(embedStoredOrderPhotos(source,"../another",[order("P-1",key)],bucket),/propietario/);
+ await assert.rejects(embedStoredOrderPhotos(source,"owner-A",[order("P-1",key)],{get:async()=>null}),/no se encontró/);
+ await assert.rejects(embedOrderPhotos(source,[{orderId:"P-1",bytes:Buffer.from("RIFFxxxxWEBP"),contentType:"image/webp"}]),/JPG o PNG/);
+ await assert.rejects(embedOrderPhotos(source,[photo("missing")]),/no se encuentra la fila/);
+});
