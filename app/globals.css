@@ -50,3 +50,24 @@
 @media(max-width:760px){.onedrive-panel{padding:19px 15px;margin-bottom:26px;border-radius:9px}.onedrive-heading{flex-wrap:wrap;gap:11px;margin-bottom:18px}.onedrive-icon{width:39px;height:39px;border-radius:10px}.onedrive-heading>div{min-width:180px}.onedrive-heading h3{font-size:16px}.onedrive-heading p{font-size:12px;line-height:1.8}.onedrive-state{font-size:11px;margin-left:50px;padding:6px 10px;max-width:100%}.onedrive-target{padding:14px 12px;gap:10px}.onedrive-target span{font-size:11px}.onedrive-target strong{font-size:13px;line-height:1.6}.onedrive-target a{font-size:12px;min-height:27px}.onedrive-configuration{padding:14px 13px}.onedrive-configuration strong{font-size:13px}.onedrive-configuration p{font-size:12px;line-height:1.9}.onedrive-authorize p{font-size:13px;line-height:1.8}.onedrive-authorize .button{font-size:13px;min-height:44px;width:100%}.onedrive-account{align-items:flex-start;gap:12px}.onedrive-account>span{font-size:11px;line-height:1.7}.onedrive-account .text-button{font-size:11px;min-height:28px;flex-shrink:0}.onedrive-sync-info p{font-size:12px;line-height:1.8}.onedrive-actions{gap:9px;align-items:stretch}.onedrive-actions>.button{flex:1;min-width:145px;font-size:12px;min-height:43px;padding:10px 11px}.onedrive-actions>.text-button{font-size:12px;margin:3px 0 0;min-height:30px}.onedrive-file-picker>.field{font-size:13px}.onedrive-search{flex-wrap:wrap;gap:9px}.onedrive-search>input{flex:auto;font-size:14px;min-height:43px}.onedrive-search>.button{font-size:12px;min-height:42px}.onedrive-file-picker>p{font-size:12px;line-height:1.8}.onedrive-file-picker>.onedrive-no-files{font-size:12px;padding:12px}.onedrive-file{padding:13px 11px;gap:10px;flex-wrap:wrap}.onedrive-file>div{flex:1;min-width:190px}.onedrive-file strong{font-size:13px}.onedrive-file small{font-size:11px}.onedrive-file .button{min-height:42px;font-size:12px;flex:1;margin-left:29px}.onedrive-panel .inline-error>strong{font-size:13px}.onedrive-panel .inline-error p,.onedrive-panel .inline-error li{font-size:12px}.onedrive-panel .inline-error li span{font-size:11px}.onedrive-panel .alert{font-size:12px;line-height:1.8}.onedrive-panel>.onedrive-limits{font-size:11px;line-height:1.9}.excel-manual-heading{font-size:11px;gap:9px;margin-bottom:22px}}
 
 @media(max-width:760px){.business-dialog .field{font-size:12px;line-height:1.6}.business-dialog .field input,.business-dialog .field select,.business-dialog .field textarea{font-size:14px;min-height:42px}.business-dialog .modal-footer>.button{font-size:12px;min-height:42px}}
+
+/* Lightbox photo modal & HD photo previews */
+.order-thumbnail-wrapper{position:relative;width:59px;height:66px;border-radius:7px;overflow:hidden;flex-shrink:0;cursor:pointer;border:1px solid #dce6cf;background:#edf2e5;display:inline-block}
+.order-thumbnail-wrapper img{width:100%;height:100%;object-fit:cover;transition:transform .2s ease;display:block}
+.order-thumbnail-wrapper:hover img{transform:scale(1.06)}
+.thumbnail-zoom-hint{position:absolute;bottom:2px;right:2px;background:rgba(0,0,0,.55);color:#fff;border-radius:4px;padding:2px 3px;display:flex;align-items:center;opacity:0;transition:opacity .2s ease}
+.order-thumbnail-wrapper:hover .thumbnail-zoom-hint{opacity:1}
+
+.detail-photo-wrapper{position:relative;width:96px;height:105px;border-radius:9px;overflow:hidden;flex-shrink:0;cursor:pointer;border:1px solid #dce6cf;background:#edf2e5}
+.detail-photo-wrapper img{width:100%;height:100%;object-fit:cover;transition:transform .2s ease;display:block}
+.detail-photo-wrapper:hover img{transform:scale(1.04)}
+.detail-photo-zoom{position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.65);color:#fff;border-radius:5px;padding:3px 6px;font-size:9px;display:flex;align-items:center;gap:3px}
+
+.photo-lightbox-backdrop{position:fixed;inset:0;background:rgba(20,28,18,.75);backdrop-filter:blur(6px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;animation:fadeIn .2s ease}
+.photo-lightbox-card{background:#fff;border-radius:14px;max-width:540px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.3);overflow:hidden;display:flex;flex-direction:column}
+.photo-lightbox-header{display:flex;justify-content:space-between;align-items:flex-start;padding:18px 22px;border-bottom:1px solid #edf2e5;background:#fbfdf9}
+.photo-lightbox-header h3{font-size:18px;font-weight:600;color:#3f582f;margin-top:2px}
+.photo-lightbox-header p{font-size:12px;color:#8ba079;margin-top:2px}
+.photo-lightbox-body{padding:14px;background:#f4f7ee;display:flex;justify-content:center;align-items:center;max-height:70vh;overflow:hidden}
+.photo-lightbox-body img{max-width:100%;max-height:65vh;object-fit:contain;border-radius:8px;box-shadow:0 4px 15px rgba(0,0,0,.08)}
+.photo-lightbox-footer{display:flex;justify-content:space-between;align-items:center;padding:14px 22px;border-top:1px solid #edf2e5;background:#fbfdf9}
