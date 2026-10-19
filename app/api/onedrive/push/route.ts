@@ -2,6 +2,7 @@ import { parseText, record, ValidationError } from "@/lib/validation";
 import { assertSql, body, context, isTransactionConflict, json, route } from "../../_shared";
 import { accessToken, canWrite, connection, downloadFile, fileId, metadata, requireConfig } from "../_core";
 import { acknowledgeWrite, bytesHash, prepareWriteback, type WriteJob } from "../_writeback";
+import { graphWriteFailure } from "../_graph-error";
 
 export async function POST(request: Request) {
   return route(async () => {
@@ -30,11 +31,12 @@ export async function POST(request: Request) {
             const remaining = await db.prepare("SELECT owner_id FROM onedrive_write_jobs WHERE owner_id=$1").bind(ownerId).first();
             if (!remaining && latest && latest.synced_etag === current.eTag) return json({ written: 0, etag: current.eTag, lastWriteAt: latest.last_write_at, recovered: true, unchanged: true });
           }
-          return json({ error: "Microsoft conserva el envío, pero falta confirmar su registro. Reintenta para verificarlo sin volver a escribir el libro.", writePending: true }, 502);
+          return json({ error: "Microsoft conserva el envío, pero falta confirmar su registro. Reintenta para verificarlo sin volver a escribir el libro.", writePending: true, retryable: true, retryAfterSeconds: 120 }, 502);
         }
       }
       if (current.eTag !== pending.source_etag) return json({ error: "El libro cambió mientras había un envío pendiente y sus bytes no coinciden con el envío preparado. No se sobrescribió. Revisa las dos versiones antes de resolver este conflicto.", writePending: true }, 409);
-      if (Date.now() - Date.parse(pending.created_at) < 120000) return json({ error: "Hay un envío en curso o pendiente de confirmar. Espera dos minutos y vuelve a comprobar; no se repetirá la escritura mientras tanto.", writePending: true }, 409);
+      const leaseRemaining = 120000 - (Date.now() - Date.parse(pending.created_at));
+      if (leaseRemaining > 0) return json({ error: "Hay un envío en curso o pendiente de confirmar. Espera dos minutos y vuelve a comprobar; no se repetirá la escritura mientras tanto.", writePending: true, retryable: true, retryAfterSeconds: Math.max(60, Math.ceil(leaseRemaining / 1000)) }, 409);
       // The original source still exists after the lease expired: no completed
       // target is present, so the abandoned job can safely be prepared again.
       try {
@@ -77,15 +79,18 @@ export async function POST(request: Request) {
         body: prepared.bytes as BodyInit, redirect: "manual", signal: AbortSignal.timeout(60000),
       });
     } catch {
-      return json({ error: "No se pudo confirmar la respuesta de Microsoft. El envío quedó pendiente: reintenta para verificar el archivo antes de repetirlo.", writePending: true }, 502);
+      return json({ error: "No se pudo confirmar la respuesta de Microsoft. El envío quedó pendiente: reintenta para verificar el archivo antes de repetirlo.", writePending: true, retryable: true, retryAfterSeconds: 120 }, 502);
     }
     if (!response.ok) {
-      if (response.status < 500) await db.prepare("DELETE FROM onedrive_write_jobs WHERE owner_id=$1 AND target_hash=$2 AND created_at=$3 AND connection_revision=$4").bind(ownerId, job.target_hash, job.created_at, job.connection_revision).run();
-      return json({ error: response.status === 412 || response.status === 409 ? "El Excel cambió o está bloqueado para edición. Microsoft rechazó la escritura; no se sobrescribió. Vuelve a leer la versión actual." : response.status === 401 || response.status === 403 ? "Microsoft no autorizó la escritura. Vuelve a activar el envío web → Excel y confirma el permiso." : "Microsoft no confirmó el envío. Comprueba el estado antes de volver a intentarlo.", ...(response.status >= 500 ? { writePending: true } : {}), ...(response.status === 412 ? { requiresPull: true } : {}) }, response.status === 401 || response.status === 403 ? 403 : response.status < 500 ? 409 : 502);
+      const failure = await graphWriteFailure(response);
+      if (!failure.preserveJob) await db.prepare("DELETE FROM onedrive_write_jobs WHERE owner_id=$1 AND target_hash=$2 AND created_at=$3 AND connection_revision=$4").bind(ownerId, job.target_hash, job.created_at, job.connection_revision).run();
+      const reply = json(failure.body, failure.status);
+      if (failure.retryAfter) reply.headers.set("Retry-After", failure.retryAfter);
+      return reply;
     }
     const written = await response.json().catch(() => ({})) as { id?: string; eTag?: string };
-    if (written.id !== id || !written.eTag) return json({ error: "Microsoft recibió el archivo, pero no devolvió una versión verificable. Reintenta para comprobar sus bytes sin escribirlo otra vez.", writePending: true }, 502);
+    if (written.id !== id || !written.eTag) return json({ error: "Microsoft recibió el archivo, pero no devolvió una versión verificable. Reintenta para comprobar sus bytes sin escribirlo otra vez.", writePending: true, retryable: true, retryAfterSeconds: 120 }, 502);
     try { return json(await acknowledgeWrite(db, ownerId, job, written.eTag)); }
-    catch { return json({ error: "El Excel se guardó, pero falta confirmar el registro del envío. Reintenta para verificar la copia exacta sin repetirla.", writePending: true }, 502); }
+    catch { return json({ error: "El Excel se guardó, pero falta confirmar el registro del envío. Reintenta para verificar la copia exacta sin repetirla.", writePending: true, retryable: true, retryAfterSeconds: 120 }, 502); }
   });
 }

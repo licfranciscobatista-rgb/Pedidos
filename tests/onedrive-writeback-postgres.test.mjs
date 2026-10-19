@@ -34,10 +34,12 @@ test("OneDrive outbound QA: permisos, If-Match, fotos, revisión exacta y recupe
    if(options.method==="PUT"){
     puts++;assert.equal(url.pathname,`/v1.0/me/drive/items/${fileId}/content`);assert.equal(options.redirect,"manual");assert.equal(headers.get("If-Match"),etag);
     if(mode==="412")return new Response(null,{status:412});
+    if(mode.startsWith("http-"))return Response.json({error:{code:"notAllowed",message:"A private upstream message must not be returned",innerError:{code:"resourceLocked","request-id":"11111111-1111-4111-8111-111111111111"}}},{status:Number(mode.slice(5)),headers:mode==="http-429"?{"Retry-After":"180"}:{}});
     if(mode==="timeout-before-accept")throw new TypeError("Simulated request lost before server accepted bytes");
     bytes=new Uint8Array(options.body);etag=`"written-${++generation}"`;
     if(duringPut){const hook=duringPut;duringPut=undefined;await hook();}
     if(mode==="accepted-timeout")throw new TypeError("Simulated response lost after server accepted bytes");
+    if(mode==="accepted-503")return Response.json({error:{code:"serviceNotAvailable"}},{status:503,headers:{"Retry-After":"60"}});
     return Response.json({id:fileId,eTag:etag});
    }
    if(url.pathname.endsWith("/content"))return new Response(null,{status:302,headers:{Location:"https://qa.microsoftpersonalcontent.com/download"}});
@@ -56,6 +58,21 @@ test("OneDrive outbound QA: permisos, If-Match, fotos, revisión exacta y recupe
    await mutate({notes:"Editar sin pisar"});const before=bytes,beforeEtag=etag,revision=await scalar("SELECT local_revision n FROM onedrive_baselines WHERE order_id='P-1'");mode="412";
    const refused=await result(push.POST(req("/api/onedrive/push",body())),409);assert.equal(refused.requiresPull,true);assert.equal(bytes,before);assert.equal(etag,beforeEtag);assert.equal(await scalar("SELECT local_revision n FROM onedrive_baselines WHERE order_id='P-1'"),revision);assert.equal(await scalar("SELECT count(*)::int n FROM onedrive_write_jobs"),0);
    mode="success";await result(push.POST(req("/api/onedrive/push",body())),200);
+  });
+  await t.test("Microsoft rejection preserves HTTP cause, safe diagnostics and backoff without acknowledging edits",async()=>{
+   await mutate({notes:"Debe esperar el desbloqueo"});const before=bytes,baseline=await scalar("SELECT local_revision n FROM onedrive_baselines WHERE order_id='P-1'");
+   for(const status of [400,404,423,429]){
+    mode=`http-${status}`;const count=puts,response=await push.POST(req("/api/onedrive/push",body())),failure=await response.json();
+    assert.equal(response.status,status);assert.equal(failure.microsoftStatus,status);assert.equal(failure.microsoftCode,"notAllowed");assert.equal(failure.microsoftInnerCode,"resourceLocked");assert.equal(failure.requestId,"11111111-1111-4111-8111-111111111111");assert.equal(failure.retryable,status===423||status===429);assert.doesNotMatch(JSON.stringify(failure),/private upstream/);
+    if(status===429){assert.equal(failure.retryAfterSeconds,180);assert.equal(response.headers.get("Retry-After"),"180");}
+    assert.equal(puts,count+1);assert.equal(bytes,before);assert.equal(await scalar("SELECT count(*)::int n FROM onedrive_write_jobs"),0);assert.equal(await scalar("SELECT local_revision n FROM onedrive_baselines WHERE order_id='P-1'"),baseline);
+   }
+   mode="success";await result(push.POST(req("/api/onedrive/push",body())),200);
+  });
+  await t.test("upstream 503 after acceptance retains exact pending job and recovers without another PUT",async()=>{
+   await mutate({notes:"Aceptado pero servicio respondió503"});mode="accepted-503";const count=puts,sourceEtag=etag;
+   const failure=await result(push.POST(req("/api/onedrive/push",body())),502);assert.equal(failure.microsoftStatus,503);assert.equal(failure.retryable,true);assert.equal(failure.retryAfterSeconds,60);assert.equal(failure.writePending,true);assert.equal(await scalar("SELECT count(*)::int n FROM onedrive_write_jobs"),1);
+   mode="success";const recovered=await result(push.POST(req("/api/onedrive/push",{fileId,etag:sourceEtag})),200);assert.equal(recovered.recovered,true);assert.equal(puts,count+1);assert.equal(await scalar("SELECT count(*)::int n FROM onedrive_write_jobs"),0);
   });
   await t.test("edit during PUT is not acknowledged as if it had been sent",async()=>{
    const captured=await mutate({notes:"Versión capturada"});duringPut=()=>mutate({notes:"Versión posterior"});await result(push.POST(req("/api/onedrive/push",body())),200);

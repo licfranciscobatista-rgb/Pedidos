@@ -20,6 +20,7 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 const { encrypt, decrypt, hash, randomToken, configuration, oauthCookie, redirectBack, canWrite } = await import("../app/api/onedrive/_core.ts");
 const { planSync, orderCanonical } = await import("../app/api/onedrive/_sync.ts");
 const { parseOrder, parsePayment } = await import("../lib/validation.ts");
+const { graphWriteFailure } = await import("../app/api/onedrive/_graph-error.ts");
 
 function order(overrides = {}) {
   return { id: "pedido-uno", platform: "Temu", client: "Ana", phone: "", batch: "Grupo 1", article: "Cartera", variant: "Azul", quantity: 1, unitCents: 10000, extraCents: 0, discountCents: 0, storeCents: 7000, status: "Pedido", date: "2026-10-17", deliveryDate: "", notes: "", photoKey: "", revision: 0, ...overrides };
@@ -39,6 +40,37 @@ function plannerDatabase({ orders = [], baselines = [], payments = [], exchanges
   };
 }
 const input = (orders = [order()], payments = []) => ({ orders, payments, exchanges: [] });
+
+test("Microsoft write errors distinguish lock, throttle, invalid request and uncertain writes without leaking messages", async () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  for (const [status, temporary, pending] of [[400,false,false],[404,false,false],[423,true,false],[429,true,false],[500,true,true],[503,true,true],[408,true,true],[409,false,false],[412,false,false],[403,false,false]]) {
+    const failure = await graphWriteFailure(Response.json({ error: { code: "notAllowed", message: "private file, access_token=secret", innerError: { code: "resourceLocked", "request-id": id } } }, { status }));
+    assert.equal(failure.status,status===412?409:status>=500?502:status);
+    assert.equal(failure.body.microsoftStatus,status);assert.equal(failure.body.retryable,temporary);assert.equal(failure.preserveJob,pending);assert.equal(Boolean(failure.body.writePending),pending);
+    assert.equal(failure.body.microsoftCode,"notAllowed");assert.equal(failure.body.microsoftInnerCode,"resourceLocked");assert.equal(failure.body.requestId,id);assert.doesNotMatch(JSON.stringify(failure),/access_token|private file|secret/);
+    if (temporary) assert.equal(failure.body.retryAfterSeconds,pending?120:60);
+    if (status===423) assert.match(failure.body.error,/Guarda y cierra/);
+    if (status===412) assert.equal(failure.body.requiresPull,true);
+  }
+});
+
+test("Microsoft Retry-After is bounded, respects seconds and dates, and disables unsafe automatic retries", async () => {
+  const now=Date.parse("2026-10-18T12:00:00Z");
+  for (const [header,seconds] of [["1",60],["180",180],["7200",7200],["Sun, 18 Oct 2026 13:00:00 GMT",3600]]) {
+    const failure=await graphWriteFailure(new Response("not-json",{status:429,headers:{"Retry-After":header}}),now);
+    assert.equal(failure.body.retryable,true);assert.equal(failure.body.retryAfterSeconds,seconds);assert.equal(failure.retryAfter,String(seconds));
+  }
+  for (const header of ["invalid","99999999999999","86401","-3"]) {
+    const failure=await graphWriteFailure(new Response("",{status:503,headers:{"Retry-After":header}}),now);
+    assert.equal(failure.body.retryable,false);assert.equal(failure.body.retryAfterSeconds,undefined);assert.equal(failure.preserveJob,true);
+  }
+});
+
+test("Microsoft diagnostics reject unsafe codes, oversized bodies and invalid request IDs", async () => {
+  const malformed=await graphWriteFailure(Response.json({error:{code:"https://private.example/token",innerError:{code:"private path",requestId:"secret"}}},{status:400,headers:{"request-id":"not-an-id"}}));
+  assert.equal(malformed.body.microsoftCode,undefined);assert.equal(malformed.body.microsoftInnerCode,undefined);assert.equal(malformed.body.requestId,undefined);
+  const oversized=await graphWriteFailure(new Response("x".repeat(16*1024+1),{status:500}));assert.equal(oversized.body.microsoftCode,undefined);assert.equal(oversized.preserveJob,true);
+});
 
 test("OneDrive: AES-GCM binds tokens to their owner and rejects altered ciphertext", async () => {
   const secret = Buffer.alloc(32, 17).toString("base64");
