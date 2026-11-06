@@ -1,5 +1,5 @@
 {
-  "name": "mi-encargo",
+  "name": "mi-tienda-inventario",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -13,7 +13,8 @@
     "db:migrate": "node scripts/migrate.mjs",
     "test:unit": "node --experimental-transform-types --test tests/excel.test.mjs tests/excel-v2.test.mjs tests/excel-writeback.test.mjs tests/excel-photo-writeback.test.mjs tests/business-panels.test.mjs tests/auth.test.mjs tests/photos.test.mjs tests/onedrive-unit.test.mjs tests/onedrive-panel.test.mjs tests/onedrive-files.test.mjs tests/postgres-safety.test.mjs tests/photo-ui.test.mjs",
     "test:pdf": "node --experimental-transform-types --test tests/pdf.test.mjs",
-    "test:postgres": "node --env-file=.env.test --experimental-transform-types --test tests/postgres.test.mjs tests/business-postgres.test.mjs tests/excel-business-postgres.test.mjs tests/onedrive-postgres.test.mjs tests/onedrive-writeback-postgres.test.mjs tests/auth-postgres.test.mjs tests/photos-postgres.test.mjs"
+    "test:postgres": "node --env-file=.env.test --experimental-transform-types --test tests/postgres.test.mjs tests/business-postgres.test.mjs tests/excel-business-postgres.test.mjs tests/onedrive-postgres.test.mjs tests/onedrive-writeback-postgres.test.mjs tests/auth-postgres.test.mjs tests/photos-postgres.test.mjs",
+    "test:inventory": "node --test tests/inventory.test.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.922.0",
@@ -56,6 +57,7 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.3.4",
+    "fake-indexeddb": "6.2.7",
     "tailwindcss": "4.2.1",
     "tw-animate-css": "^1.4.0",
     "typescript": "5.9.3"

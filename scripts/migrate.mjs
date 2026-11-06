@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { Pool } from "pg";
 
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL, max: 1 });
 const client = await pool.connect();
 try {
   await client.query("BEGIN");

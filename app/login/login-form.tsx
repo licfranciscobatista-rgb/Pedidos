@@ -20,6 +20,6 @@ export default function LoginForm({ ownerUsername }: { ownerUsername: string }) 
     <label className={styles.field}>Usuario<div className={styles.inputWrap}><UserRound size={19} aria-hidden="true"/><input name="username" autoComplete="username" defaultValue={ownerUsername} required maxLength={40} disabled={busy}/></div></label>
     <label className={styles.field}>PIN<div className={styles.inputWrap}><LockKeyhole size={19} aria-hidden="true"/><input name="password" type="password" autoComplete="current-password" placeholder="Tu PIN de 4 dígitos" inputMode="numeric" required maxLength={256} disabled={busy}/></div></label>
     {error && <p className={styles.error} role="alert">{error}</p>}
-    <button type="submit" className={styles.submit} disabled={busy}>{busy ? <LoaderCircle size={18} className="spin"/> : <ShieldCheck size={18}/>} {busy ? "Un momento…" : "Entrar a mis pedidos"}{!busy && <ArrowRight size={17}/>}</button>
+    <button type="submit" className={styles.submit} disabled={busy}>{busy ? <LoaderCircle size={18} className="spin"/> : <ShieldCheck size={18}/>} {busy ? "Un momento…" : "Entrar a mi tienda"}{!busy && <ArrowRight size={17}/>}</button>
   </form><p className={styles.hint}><ShieldCheck size={16} aria-hidden="true"/> Tu sesión es privada. Ciérrala si utilizas un dispositivo compartido.</p></>;
 }
