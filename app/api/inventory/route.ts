@@ -3,21 +3,32 @@ import { getPool } from '@/lib/db';
 import { context, body, json, route } from '../_shared';
 import { ValidationError } from '@/lib/validation';
 import { validateState } from '@/public/caja/domain.mjs';
+import { defaultStoreId, inventoryNamespace } from '@/public/caja/profiles.mjs';
 
 export const dynamic='force-dynamic';
 const validId=(v:unknown)=>typeof v==='string'&&/^[0-9a-f-]{36}$/i.test(v);
+function storeOwnerId(ownerId:string,storeId:unknown){
+ if(typeof storeId!=='string')throw new ValidationError('Selecciona un perfil de tienda válido.',400);
+ // Keep existing Librería Valencia data under its original key; use a separate
+ // owner namespace for every additional independent store profile.
+ const namespace=inventoryNamespace(ownerId,storeId||defaultStoreId);
+ if(!namespace)throw new ValidationError('Selecciona un perfil de tienda válido.',400);
+ return namespace;
+}
 export async function GET(request:Request){return route(async()=>{
- const {ownerId}=await context(request);
+ const {ownerId:accountOwnerId}=await context(request);
  const db=getPool(),query=new URL(request.url).searchParams;
+ const ownerId=storeOwnerId(accountOwnerId,query.get('storeId')||defaultStoreId);
  if(query.has('command')){await db.query("UPDATE inventory_commands SET status='expired',result_json=$3::jsonb WHERE owner_id=$1 AND id=$2 AND status='pending' AND expires_at<now()",[ownerId,query.get('command'),JSON.stringify({error:'La PC no confirmó a tiempo. La venta no se realizó.'})]);const r=await db.query('SELECT status,result_json AS result FROM inventory_commands WHERE owner_id=$1 AND id=$2',[ownerId,query.get('command')]);return json(r.rows[0]||{status:'missing'});}
  const r=await db.query('SELECT device_id AS "deviceId",version,state_json AS state,last_seen AS "lastSeen",updated_at AS "updatedAt",COALESCE(last_seen > now()-interval \'8 seconds\',false) AS available FROM inventory_primary WHERE owner_id=$1',[ownerId]);
  const row=r.rows[0];
  // Avoid transferring the full catalog for unchanged mobile polling.
  if(row&&query.get('version')===String(row.version))delete row.state;
- return json({ownerId,primary:row||null});
+ return json({ownerId:accountOwnerId,storeId:query.get('storeId')||defaultStoreId,primary:row||null});
 });}
 export async function POST(request:Request){return route(async()=>{
- const {ownerId}=await context(request,true),raw=await body(request) as Record<string,unknown>;
+ const {ownerId:accountOwnerId}=await context(request,true),raw=await body(request) as Record<string,unknown>;
+ const ownerId=storeOwnerId(accountOwnerId,raw.storeId||defaultStoreId);
  const db=getPool(),client=await db.connect();
  try{
  await client.query('BEGIN');await client.query("SET LOCAL lock_timeout='10s'");await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`inventory:${ownerId}`]);
