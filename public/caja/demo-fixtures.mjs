@@ -4,6 +4,11 @@ const productsByStore = {
   'decoraciones-valencia': [['Jarrón cerámico',32500],['Lámpara de mesa',64500],['Cojín decorativo',18500],['Marco para foto',12500],['Vela aromática',9500],['Florero de vidrio',27500],['Planta artificial',21500],['Espejo decorativo',58500],['Canasta tejida',29500],['Cuadro decorativo',72000]],
 };
 
+export function isLegacyDemo(state) {
+  return state?.products?.length===3 && state.sales?.length===0 && state.operations?.length===4 &&
+    ['ARR-001','ACE-001','JAB-001'].every(sku=>state.products.some(product=>product.sku===sku));
+}
+
 export function createDemoCatalog(profile, makeId = () => crypto.randomUUID()) {
   const entries = productsByStore[profile.slug] || productsByStore['libreria-valencia'];
   return entries.map(([name,unitCents],i)=>({id:makeId(),sku:`${profile.slug.slice(0,3).toUpperCase()}-${String(i+1).padStart(3,'0')}`,name,category:profile.name,unitCents,costCents:Math.round(unitCents*.62),stock:20000,minStock:5000,active:true,barcode:''}));
