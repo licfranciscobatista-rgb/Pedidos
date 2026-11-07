@@ -5,6 +5,8 @@ export type ReceiptPdfData = {
   number?: string;
   at: string;
   customer?: string;
+  customerPhone?: string;
+  customerIdNumber?: string;
   method?: string;
   status?: string;
   shop?: { name?: string; rnc?: string; phone?: string; address?: string };
@@ -12,6 +14,13 @@ export type ReceiptPdfData = {
   totalCents: number;
   paidCents: number;
   changeCents: number;
+  netSalesCents?: number;
+  collectedLaterCents?: number;
+  refundCents?: number;
+  cashRefundedCents?: number;
+  balanceCents?: number;
+  collections?: Array<{ saleId?: string; at: string; amountCents: number; method: string; note?: string }>;
+  refunds?: Array<{ saleId?: string; at: string; amountCents: number; cashRefundCents: number; note: string }>;
 };
 
 const money = (cents: number) => `RD$ ${(cents / 100).toFixed(2)}`;
@@ -59,11 +68,13 @@ export async function createReceiptPdfBytes(sale: ReceiptPdfData): Promise<Uint8
   if (sale.shop?.address) { draw(String(sale.shop.address).slice(0, 120), margin, 9, regular, muted); y -= 14; }
   y -= 17;
   page.drawLine({ start: { x: margin, y }, end: { x: width - margin, y }, thickness: 1, color: rgb(.84, .87, .83) }); y -= 29;
-  draw('COMPROBANTE INTERNO DE VENTA', margin, 12, bold, green); y -= 20;
+  draw('FACTURA COMERCIAL INTERNA', margin, 12, bold, green); y -= 20;
   draw(`Número: ${sale.number || '—'}`, margin, 10, bold);
   right(dateText(sale.at), 10, regular, width - margin); y -= 18;
   draw(`Cliente: ${sale.customer || 'Consumidor final'}`, margin, 10); y -= 16;
-  draw(`Pago: ${sale.method || 'Efectivo'} · ${sale.status || 'Confirmada'}`, margin, 10); y -= 25;
+  if (sale.customerPhone) { draw(`Teléfono: ${sale.customerPhone}`, margin, 9); y -= 14; }
+  if (sale.customerIdNumber) { draw(`Cédula o RNC: ${sale.customerIdNumber}`, margin, 9); y -= 14; }
+  draw(`Pago inicial: ${sale.method || 'Efectivo'} · ${sale.status || 'Confirmada'}`, margin, 10); y -= 25;
   tableHeader();
 
   for (const item of sale.items) {
@@ -79,14 +90,29 @@ export async function createReceiptPdfBytes(sale: ReceiptPdfData): Promise<Uint8
   if (y < margin + 95) newPage();
   y -= 10;
   for (const [label, amount] of [
-    ['Total', sale.totalCents], ['Recibido', sale.paidCents], ['Cambio', sale.changeCents],
+    ['Total original', sale.totalCents],
+    ['Cobrado al emitir', Math.max(0, sale.paidCents - sale.changeCents)],
+    ['Cambio entregado', sale.changeCents],
+    ['Cobros posteriores', sale.collectedLaterCents || 0],
+    ['Mercancía devuelta', sale.refundCents || 0],
+    ['Dinero reembolsado', sale.cashRefundedCents || 0],
+    ['Venta neta', sale.netSalesCents ?? sale.totalCents],
+    ['Saldo pendiente', sale.balanceCents || 0],
   ] as const) {
-    draw(label, width - 190, 10, label === 'Total' ? bold : regular);
-    right(money(Number(amount) || 0), 10, label === 'Total' ? bold : regular, width - margin);
+    draw(label, width - 190, 10, label === 'Venta neta' ? bold : regular);
+    right(money(Number(amount) || 0), 10, label === 'Venta neta' ? bold : regular, width - margin);
     y -= 18;
+  }
+  for (const payment of sale.collections || []) {
+    if (y < margin + 55) newPage();
+    draw(`Pago posterior · ${dateText(payment.at)} · ${payment.method}: ${money(payment.amountCents)}${payment.note ? ` · ${payment.note}` : ''}`, margin, 8, regular, muted); y -= 13;
+  }
+  for (const refund of sale.refunds || []) {
+    if (y < margin + 55) newPage();
+    draw(`Devolución · ${dateText(refund.at)} · ${money(refund.amountCents)} (efectivo ${money(refund.cashRefundCents)})${refund.note ? ` · ${refund.note}` : ''}`, margin, 8, regular, muted); y -= 13;
   }
   y -= 15;
   page.drawLine({ start: { x: margin, y }, end: { x: width - margin, y }, thickness: 1, color: rgb(.84, .87, .83) }); y -= 24;
-  draw('Sin validez fiscal. Este documento no incluye NCF ni e-CF.', margin, 9, regular, muted);
+  draw('Documento interno. No es fiscal; no incluye NCF, e-CF ni ITBIS.', margin, 9, regular, muted);
   return pdf.save();
 }

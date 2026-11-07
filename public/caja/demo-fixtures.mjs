@@ -31,12 +31,30 @@ export function createDemoSales(products, makeId = () => crypto.randomUUID(), no
 }
 
 export function demoSaleIsValid(sale, profile) {
-  if (!sale || sale.shop?.name!==profile.name || !/^V-\d{7}$/.test(sale.number||'') || sale.status!=='Confirmada' || !/^Cliente de prueba [1-4]$/.test(sale.customer||'') || !Array.isArray(sale.items) || sale.items.length!==1) return false;
-  const [item]=sale.items;
-  return typeof sale.id==='string' && Number.isFinite(Date.parse(sale.at)) &&
-    typeof item?.sku==='string' && item.sku.startsWith(profile.slug.slice(0,3).toUpperCase()+'-') &&
-    Number.isSafeInteger(item.quantity) && item.quantity===1000 &&
-    Number.isSafeInteger(item.unitCents) && item.unitCents>0 &&
-    item.totalCents===item.unitCents && sale.totalCents===item.totalCents &&
-    sale.paidCents>=sale.totalCents && sale.changeCents===sale.paidCents-sale.totalCents;
+  if (!sale || sale.shop?.name!==profile.name || !/^(?:V-\d{7}|INT-\d{4}-\d{7})$/.test(sale.number||'') ||
+      !['Confirmada','Anulada','Pagada','Pendiente de pago','Parcialmente devuelta','Devuelta'].includes(sale.status) || !Array.isArray(sale.items) || !sale.items.length || sale.items.length>500 ||
+      typeof sale.id!=='string' || !sale.id || !Number.isFinite(Date.parse(sale.at)) ||
+      typeof sale.customer!=='string' || sale.customer.length>160 ||
+      !Number.isSafeInteger(sale.totalCents) || sale.totalCents<0 ||
+      !Number.isSafeInteger(sale.paidCents) || sale.paidCents<0 ||
+      !Number.isSafeInteger(sale.changeCents) || sale.changeCents<0 ||
+      sale.paidCents<sale.totalCents || sale.changeCents!==sale.paidCents-sale.totalCents) return false;
+
+  const prefix=profile.slug.slice(0,3).toUpperCase()+'-';
+  let total=0;
+  for(const item of sale.items){
+    if(typeof item?.sku!=='string' || !item.sku.startsWith(prefix) ||
+       !Number.isSafeInteger(item.quantity) || item.quantity<=0 ||
+       !Number.isSafeInteger(item.unitCents) || item.unitCents<0 ||
+       !Number.isSafeInteger(item.totalCents) || item.totalCents!==Math.round(item.unitCents*item.quantity/1000)) return false;
+    total+=item.totalCents;
+    if(!Number.isSafeInteger(total)) return false;
+  }
+  if(total!==sale.totalCents) return false;
+
+  // Legacy V-numbered fixtures are deliberately kept narrow. INT-numbered
+  // invoices follow the same multi-item/partial-payment rules as the POS.
+  if(sale.number.startsWith('V-')) return sale.items.length===1 && /^Cliente de prueba [1-4]$/.test(sale.customer) &&
+    sale.items[0].quantity===1000 && sale.items[0].unitCents>0;
+  return true;
 }

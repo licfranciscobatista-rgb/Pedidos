@@ -4,6 +4,7 @@ import { body, context, route } from '../../_shared';
 import { ValidationError } from '@/lib/validation';
 import { defaultStoreId, getStoreProfile, inventoryNamespace } from '@/public/caja/profiles.mjs';
 import { demoSaleIsValid } from '@/public/caja/demo-fixtures.mjs';
+import { saleAccounting } from '@/public/caja/domain.mjs';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,12 +33,24 @@ export async function POST(request: Request) {
       }
       const scopedOwnerId = inventoryNamespace(accountOwnerId, storeId);
       if (!scopedOwnerId) throw new ValidationError('Selecciona un perfil de tienda válido.', 400);
-      const result = await getPool().query<{ state: { sales: ReceiptPdfData[] } | null }>(
+      const result = await getPool().query<{ state: { sales: ReceiptPdfData[]; refunds?: ReceiptPdfData['refunds']; collections?: ReceiptPdfData['collections'] } | null }>(
         'SELECT state_json AS state FROM inventory_primary WHERE owner_id=$1', [scopedOwnerId],
       );
-      const savedSale = result.rows[0]?.state?.sales?.find(row => row.id === raw.receiptId);
+      const savedState = result.rows[0]?.state;
+      const savedSale = savedState?.sales?.find(row => row.id === raw.receiptId);
       if (!savedSale) throw new ValidationError('Sincroniza el comprobante antes de descargarlo.', 404);
-      sale = savedSale;
+      const financials = saleAccounting(savedSale, savedState as never);
+      sale = {
+        ...savedSale,
+        status: financials.status,
+        netSalesCents: financials.netRevenueCents,
+        collectedLaterCents: financials.collectedLaterCents,
+        refundCents: financials.amountCents,
+        cashRefundedCents: financials.cashRefundCents,
+        balanceCents: financials.balanceCents,
+        collections: (savedState?.collections || []).filter(item => item.saleId === savedSale.id),
+        refunds: (savedState?.refunds || []).filter(item => item.saleId === savedSale.id),
+      };
     }
 
     const bytes = await createReceiptPdfBytes(sale);
