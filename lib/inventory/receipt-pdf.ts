@@ -3,6 +3,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 export type ReceiptPdfData = {
   id?: string;
   number?: string;
+  documentType?: 'sale' | 'invoice';
   at: string;
   customer?: string;
   customerPhone?: string;
@@ -68,12 +69,14 @@ export async function createReceiptPdfBytes(sale: ReceiptPdfData): Promise<Uint8
   if (sale.shop?.address) { draw(String(sale.shop.address).slice(0, 120), margin, 9, regular, muted); y -= 14; }
   y -= 17;
   page.drawLine({ start: { x: margin, y }, end: { x: width - margin, y }, thickness: 1, color: rgb(.84, .87, .83) }); y -= 29;
-  draw('FACTURA COMERCIAL INTERNA', margin, 12, bold, green); y -= 20;
+  draw(sale.documentType === 'sale' ? 'COMPROBANTE INTERNO DE VENTA' : 'FACTURA COMERCIAL INTERNA', margin, 12, bold, green); y -= 20;
   draw(`Número: ${sale.number || '—'}`, margin, 10, bold);
   right(dateText(sale.at), 10, regular, width - margin); y -= 18;
-  draw(`Cliente: ${sale.customer || 'Consumidor final'}`, margin, 10); y -= 16;
-  if (sale.customerPhone) { draw(`Teléfono: ${sale.customerPhone}`, margin, 9); y -= 14; }
-  if (sale.customerIdNumber) { draw(`Cédula o RNC: ${sale.customerIdNumber}`, margin, 9); y -= 14; }
+  if (sale.documentType !== 'sale') {
+    draw(`Cliente: ${sale.customer || 'Consumidor final'}`, margin, 10); y -= 16;
+    if (sale.customerPhone) { draw(`Teléfono: ${sale.customerPhone}`, margin, 9); y -= 14; }
+    if (sale.customerIdNumber) { draw(`Cédula o RNC: ${sale.customerIdNumber}`, margin, 9); y -= 14; }
+  }
   draw(`Pago inicial: ${sale.method || 'Efectivo'} · ${sale.status || 'Confirmada'}`, margin, 10); y -= 25;
   tableHeader();
 

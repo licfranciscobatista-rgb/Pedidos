@@ -44,3 +44,25 @@ test('PDF de factura interna incluye datos del cliente, cobros, devolución y sa
     assert.ok(pdfText.includes(value), `Missing PDF text: ${value}`);
   }
 });
+
+test('PDF de venta normal se identifica como comprobante interno y omite datos del cliente', async () => {
+  const sale = {
+    documentType: 'sale', number: 'INT-2026-0000043', at: '2026-10-17T18:00:00.000Z',
+    customer: 'Consumidor final', customerPhone: '809-555-0999', customerIdNumber: '001-999',
+    method: 'Efectivo', status: 'Confirmada', shop: { name: 'Librería Valencia' },
+    items: [{ name: 'Lapicero', sku: 'LAP-001', quantity: 1000, unitCents: 1800, totalCents: 1800 }],
+    totalCents: 1800, paidCents: 1800, changeCents: 0,
+  };
+  const bytes = await createReceiptPdfBytes(sale);
+  const path = `${scratch}/internal-sale.pdf`;
+  writeFileSync(path, bytes);
+  const extracted = spawnSync(python, ['-c', "from pypdf import PdfReader; import json,sys; print(json.dumps([p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages],ensure_ascii=True))", path], { encoding: 'utf8' });
+  assert.equal(extracted.status, 0, extracted.stderr || 'PDF text extraction failed');
+  const pdfText = JSON.parse(extracted.stdout).join('\n');
+  assert.ok(pdfText.includes('COMPROBANTE INTERNO DE VENTA'));
+  assert.ok(pdfText.includes(sale.number));
+  assert.ok(pdfText.includes('Lapicero'));
+  assert.ok(!pdfText.includes(sale.customerPhone));
+  assert.ok(!pdfText.includes(sale.customerIdNumber));
+  assert.ok(pdfText.includes('no incluye NCF, e-CF ni ITBIS'));
+});

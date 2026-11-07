@@ -160,10 +160,13 @@ export function validateState(state) {
     if (!sale.id || saleIds.has(sale.id) || !Array.isArray(sale.items) || !sale.items.length || sale.items.length > 500) throw Error('Venta inválida.');
     if (!sale.number || saleNumbers.has(sale.number) || !validDate(sale.at)) throw Error('Número o fecha de venta inválidos.');
     if (!['Confirmada', 'Anulada'].includes(sale.status)) throw Error('Estado de venta inválido.');
+    if (sale.documentType !== undefined && !['sale', 'invoice'].includes(sale.documentType)) throw Error('Tipo de comprobante inválido.');
     if (!sale.shop || typeof sale.shop !== 'object') throw Error('La factura no conserva los datos de la tienda.');
     integer(sale.totalCents); integer(sale.paidCents); integer(sale.changeCents);
     if (sale.changeCents !== Math.max(0, sale.paidCents - sale.totalCents)) throw Error('El cambio no coincide con el dinero recibido.');
     if (sale.paidCents < sale.changeCents) throw Error('Importe recibido inválido.');
+    if (sale.documentType === 'sale' && sale.paidCents < sale.totalCents) throw Error('La venta normal debe quedar pagada.');
+    if (sale.documentType === 'invoice' && !String(sale.customer || '').trim()) throw Error('La factura requiere el nombre del cliente.');
     const seenItems = new Set(); let total = 0;
     for (const item of sale.items) {
       if (!item.productId || seenItems.has(item.productId) || !products.has(item.productId)) throw Error('La factura contiene artículos duplicados o inexistentes.');
@@ -357,6 +360,7 @@ export function applyOperation(current, operation) {
     move(product, data.type === 'Entrada' ? amount : -amount, data.type, note);
   } else if (operation.kind === 'sale') {
     if (!Array.isArray(data.items) || !data.items.length || data.items.length > 500) throw Error('Agrega artículos a la venta.');
+    if (data.documentType !== undefined && !['sale', 'invoice'].includes(data.documentType)) throw Error('Tipo de comprobante inválido.');
     const grouped = new Map();
     for (const row of data.items) grouped.set(row.productId, integer((grouped.get(row.productId) || 0) + integer(row.quantity, 1)));
     const items = []; let total = 0;
@@ -373,16 +377,19 @@ export function applyOperation(current, operation) {
     }
     const paid = integer(data.paidCents ?? total);
     if (paid > MAX_INTEGER) throw Error('El importe recibido es demasiado grande.');
-    const customer = text(data.customer || 'Consumidor final');
+    if (data.documentType === 'sale' && paid < total) throw Error('La venta normal debe quedar pagada. Elige una factura a nombre de cliente para dejar saldo pendiente.');
+    if (data.documentType === 'invoice' && !text(data.customer)) throw Error('Escribe el nombre del cliente para emitir la factura a su nombre.');
+    const customer = data.documentType === 'sale' ? 'Consumidor final' : text(data.customer || 'Consumidor final');
     const method = text(data.method || 'Efectivo', 40);
     if (!allowedPaymentMethods.has(method)) throw Error('Selecciona una forma de pago válida.');
     const sale = {
       id: operation.id,
       number: `INT-${operation.at.slice(0, 4)}-${String(next.sales.length + 1).padStart(7, '0')}`,
       at: operation.at,
+      documentType: data.documentType ?? 'invoice',
       customer,
-      customerPhone: text(data.customerPhone, 40),
-      customerIdNumber: text(data.customerIdNumber, 40),
+      customerPhone: data.documentType === 'sale' ? '' : text(data.customerPhone, 40),
+      customerIdNumber: data.documentType === 'sale' ? '' : text(data.customerIdNumber, 40),
       method,
       items,
       totalCents: total,
