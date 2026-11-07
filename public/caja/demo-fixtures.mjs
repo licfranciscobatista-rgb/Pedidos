@@ -9,6 +9,14 @@ export function isLegacyDemo(state) {
     ['ARR-001','ACE-001','JAB-001'].every(sku=>state.products.some(product=>product.sku===sku));
 }
 
+export function demoFixtureNeedsShopName(state, profile) {
+  const prefix=profile.slug.slice(0,3).toUpperCase()+'-';
+  return state?.shop?.name==='Mi tienda' && state.products?.length===10 && state.sales?.length===40 &&
+    state.products.every(product=>product.sku.startsWith(prefix)) &&
+    state.sales.every(sale=>sale.shop?.name==='Mi tienda' && /^Cliente de prueba [1-4]$/.test(sale.customer||'') &&
+      sale.items?.length===1 && sale.items[0].sku.startsWith(prefix));
+}
+
 export function createDemoCatalog(profile, makeId = () => crypto.randomUUID()) {
   const entries = productsByStore[profile.slug] || productsByStore['libreria-valencia'];
   return entries.map(([name,unitCents],i)=>({id:makeId(),sku:`${profile.slug.slice(0,3).toUpperCase()}-${String(i+1).padStart(3,'0')}`,name,category:profile.name,unitCents,costCents:Math.round(unitCents*.62),stock:20000,minStock:5000,active:true,barcode:''}));
