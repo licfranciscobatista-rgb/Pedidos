@@ -18,7 +18,7 @@
 /.vinext/
 /out/
 
-# misc
+/# misc
 .DS_Store
 *.pem
 
@@ -37,6 +37,7 @@ yarn-error.log*
 
 # typescript
 next-env.d.ts
+/AGENTS.md
 
 # Maintained Vite plugin and worker sources.
 !/build/
@@ -51,8 +52,6 @@ next-env.d.ts
 /.wrangler/
 # Checkout-local execution profile and tool state; never publish them.
 /.sites-runtime/
-/.agents/
-/.codex/
 /outputs/
 /work/
 *.tsbuildinfo
@@ -68,7 +67,6 @@ next-env.d.ts
 /examples/
 /vite.config.ts
 /cloudflare-env.d.ts
-/app/chatgpt-auth.ts
 /lib/connector*
 /lib/connectors.ts
 /components/connector-error.tsx
